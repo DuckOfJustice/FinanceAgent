@@ -1,9 +1,24 @@
 import { useEffect, useState } from 'react'
-import { PieChart, Pie, Cell, Tooltip, Legend } from 'recharts'
+import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 type CategorySummary = { category: string; totalAmount: number }
 
-const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#a4de6c', '#d0ed57', '#8dd1e1', '#83a6ed', '#d885a3']
+// Feste Zuordnung statt zyklischer Farben - bleibt ueber Monate stabil erkennbar.
+// "Sonstiges" bekommt bewusst Grau statt einer 9. generierten Farbe (Palette hat nur 8 Slots).
+const CATEGORY_COLORS: Record<string, string> = {
+  Lebensmittel: 'var(--cat-lebensmittel)',
+  Miete: 'var(--cat-miete)',
+  Freizeit: 'var(--cat-freizeit)',
+  Transport: 'var(--cat-transport)',
+  Versicherung: 'var(--cat-versicherung)',
+  Gehalt: 'var(--cat-gehalt)',
+  Abo: 'var(--cat-abo)',
+  Gesundheit: 'var(--cat-gesundheit)',
+  Sonstiges: 'var(--cat-sonstiges)',
+}
+const FALLBACK_COLOR = 'var(--cat-sonstiges)'
+
+const eur = (n: number) => `${n < 0 ? '-' : '+'}${Math.abs(n).toFixed(2)} €`
 
 export default function MonthlyDashboard() {
   const [data, setData] = useState<CategorySummary[]>([])
@@ -13,7 +28,9 @@ export default function MonthlyDashboard() {
   const loadSummary = () => {
     fetch(`/api/summary?month=${month}`)
       .then(r => r.json())
-      .then(setData)
+      .then((rows: CategorySummary[]) => {
+        setData([...rows].sort((a, b) => Math.abs(b.totalAmount) - Math.abs(a.totalAmount)))
+      })
   }
 
   useEffect(loadSummary, [month])
@@ -25,24 +42,59 @@ export default function MonthlyDashboard() {
     setLoading(false)
   }
 
+  const chartData = data.map(d => ({ ...d, absAmount: Math.abs(d.totalAmount) }))
+  const chartHeight = Math.max(chartData.length * 44, 120)
+
   return (
     <div>
-      <button onClick={refresh} disabled={loading}>
-        {loading ? 'Laedt...' : 'Umsaetze abrufen & kategorisieren'}
+      <button onClick={refresh} disabled={loading} style={{ marginBottom: '2rem' }}>
+        {loading ? 'Lädt...' : 'Umsätze abrufen & kategorisieren'}
       </button>
 
       {data.length === 0 ? (
-        <p>Keine Daten fuer {month}. Erst "Umsaetze abrufen" klicken.</p>
+        <p style={{ color: 'var(--ink-secondary)' }}>Keine Daten für {month}. Erst "Umsätze abrufen" klicken.</p>
       ) : (
-        <PieChart width={400} height={400}>
-          <Pie data={data} dataKey="totalAmount" nameKey="category" label cx="50%" cy="50%" outerRadius={150}>
-            {data.map((entry, i) => (
-              <Cell key={entry.category} fill={COLORS[i % COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip formatter={(v: number) => `${v.toFixed(2)} €`} />
-          <Legend />
-        </PieChart>
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            barSize={20}
+            margin={{ top: 4, right: 72, bottom: 4, left: 8 }}
+          >
+            <XAxis type="number" hide />
+            <YAxis
+              type="category"
+              dataKey="category"
+              axisLine={false}
+              tickLine={false}
+              width={110}
+              tick={{ fill: 'var(--ink-primary)', fontSize: 14 }}
+            />
+            <Tooltip
+              formatter={(value: number, _name: string, item: { payload?: CategorySummary }) =>
+                eur(item.payload?.totalAmount ?? value)
+              }
+              contentStyle={{
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                color: 'var(--ink-primary)',
+              }}
+              labelStyle={{ color: 'var(--ink-primary)' }}
+            />
+            <Bar dataKey="absAmount" radius={[0, 4, 4, 0]}>
+              {chartData.map(d => (
+                <Cell key={d.category} fill={CATEGORY_COLORS[d.category] ?? FALLBACK_COLOR} />
+              ))}
+              <LabelList
+                dataKey="totalAmount"
+                position="right"
+                formatter={(v: number) => eur(v)}
+                style={{ fill: 'var(--ink-secondary)', fontSize: 13 }}
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       )}
     </div>
   )

@@ -14,6 +14,7 @@ services:
     volumes:
       - backend_data:/app/data
       - ./backend/keys:/app/keys:ro
+      - ./backend/category-rules.json:/app/category-rules.json:ro
     depends_on: [ollama]
     networks: [finance-net]
 

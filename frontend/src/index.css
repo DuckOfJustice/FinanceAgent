@@ -1,0 +1,87 @@
+:root {
+  color-scheme: light;
+  --surface-page: #f9f9f7;
+  --surface-card: #fcfcfb;
+  --ink-primary: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #898781;
+  --border: rgba(11, 11, 11, 0.10);
+
+  --cat-lebensmittel: #2a78d6;
+  --cat-miete: #eb6834;
+  --cat-freizeit: #1baf7a;
+  --cat-transport: #eda100;
+  --cat-versicherung: #e87ba4;
+  --cat-gehalt: #008300;
+  --cat-abo: #4a3aa7;
+  --cat-gesundheit: #e34948;
+  --cat-sonstiges: #898781;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-page: #0d0d0d;
+    --surface-card: #1a1a19;
+    --ink-primary: #ffffff;
+    --ink-secondary: #c3c2b7;
+    --ink-muted: #898781;
+    --border: rgba(255, 255, 255, 0.10);
+
+    --cat-lebensmittel: #3987e5;
+    --cat-miete: #d95926;
+    --cat-freizeit: #199e70;
+    --cat-transport: #c98500;
+    --cat-versicherung: #d55181;
+    --cat-gehalt: #008300;
+    --cat-abo: #9085e9;
+    --cat-gesundheit: #e66767;
+    --cat-sonstiges: #898781;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-page: #0d0d0d;
+  --surface-card: #1a1a19;
+  --ink-primary: #ffffff;
+  --ink-secondary: #c3c2b7;
+  --ink-muted: #898781;
+  --border: rgba(255, 255, 255, 0.10);
+
+  --cat-lebensmittel: #3987e5;
+  --cat-miete: #d95926;
+  --cat-freizeit: #199e70;
+  --cat-transport: #c98500;
+  --cat-versicherung: #d55181;
+  --cat-gehalt: #008300;
+  --cat-abo: #9085e9;
+  --cat-gesundheit: #e66767;
+  --cat-sonstiges: #898781;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--ink-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+button {
+  font: inherit;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  color: var(--ink-primary);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

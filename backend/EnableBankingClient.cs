@@ -48,11 +48,11 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         return JsonDocument.Parse(await res.Content.ReadAsStreamAsync()).RootElement.Clone();
     }
 
-    public async Task<List<BankTransaction>> GetCurrentMonthTransactionsAsync(string sessionId)
+    public async Task<List<BankTransaction>> GetCurrentMonthTransactionsAsync(string sessionId, string targetIban)
     {
         AuthenticateRequest();
         var session = await http.GetFromJsonAsync<SessionResponse>($"sessions/{sessionId}");
-        var accountId = session!.Accounts.First();
+        var accountId = await FindAccountByIbanAsync(session!.Accounts, targetIban);
 
         var from = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
         AuthenticateRequest();
@@ -73,6 +73,20 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
                     Purpose: t.RemittanceInformation is { Count: > 0 } r ? string.Join(" ", r) : "");
             })
             .ToList();
+    }
+
+    // Der Volksbank-Account hat mehrere verknuepfte Konten - hier gezielt das mit der
+    // konfigurierten IBAN raussuchen statt uns auf die Reihenfolge zu verlassen.
+    private async Task<string> FindAccountByIbanAsync(List<string> accountUids, string targetIban)
+    {
+        foreach (var uid in accountUids)
+        {
+            AuthenticateRequest();
+            var details = await http.GetFromJsonAsync<AccountDetails>($"accounts/{uid}/details");
+            if (details?.AccountId.Iban == targetIban)
+                return uid;
+        }
+        throw new InvalidOperationException($"Kein verknuepftes Konto mit IBAN {targetIban} gefunden.");
     }
 
     private void AuthenticateRequest() =>
@@ -127,6 +141,10 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         [property: JsonPropertyName("remittance_information")] List<string>? RemittanceInformation);
 
     private sealed record RawAmount([property: JsonPropertyName("amount")] string Amount);
+
+    private sealed record AccountDetails([property: JsonPropertyName("account_id")] AccountIdInfo AccountId);
+
+    private sealed record AccountIdInfo([property: JsonPropertyName("iban")] string? Iban);
 
     private sealed record Party([property: JsonPropertyName("name")] string? Name);
 }

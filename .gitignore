@@ -4,6 +4,7 @@ backend/bin/
 backend/obj/
 backend/data/
 backend/keys/
+backend/category-rules.json
 
 frontend/node_modules/
 frontend/dist/

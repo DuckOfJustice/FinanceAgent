@@ -11,8 +11,13 @@ public sealed class CategorizationService(HttpClient ollama, IConfiguration cfg)
         ["Lebensmittel", "Miete", "Freizeit", "Transport", "Versicherung",
          "Gehalt", "Abo", "Gesundheit", "Sonstiges"];
 
+    private const string RulesPath = "category-rules.json";
+
     public async Task<string> CategorizeAsync(string? counterpartyName, string purpose)
     {
+        var configured = TryGetConfiguredCategory(counterpartyName, purpose);
+        if (configured is not null) return configured;
+
         var maskedName = MaskSensitiveData(counterpartyName ?? "");
         var maskedPurpose = MaskSensitiveData(purpose);
 
@@ -38,6 +43,25 @@ public sealed class CategorizationService(HttpClient ollama, IConfiguration cfg)
         var result = JsonSerializer.Deserialize<CategoryResult>(body!.Response);
 
         return Categories.Contains(result?.Category) ? result!.Category! : "Sonstiges";
+    }
+
+    // Feste Zuordnungen vor dem LLM pruefen (z.B. "FitX" -> "Freizeit") - muss nicht vollstaendig
+    // sein, nur Treffer werden genutzt, alles andere geht weiter an Ollama. Datei wird bei jedem
+    // Aufruf neu gelesen, damit Aenderungen ohne Neustart wirken (kleine Datei, unkritisch).
+    private string? TryGetConfiguredCategory(string? counterpartyName, string purpose)
+    {
+        if (!File.Exists(RulesPath)) return null;
+
+        var rules = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(RulesPath));
+        if (rules is null) return null;
+
+        var haystack = $"{counterpartyName} {purpose}";
+        foreach (var (pattern, category) in rules)
+        {
+            if (haystack.Contains(pattern, StringComparison.OrdinalIgnoreCase) && Categories.Contains(category))
+                return category;
+        }
+        return null;
     }
 
     private string MaskSensitiveData(string text)

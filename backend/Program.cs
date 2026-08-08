@@ -46,7 +46,9 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
     if (string.IsNullOrEmpty(sessionId))
         return Results.BadRequest("Kein EnableBanking:SessionId gesetzt - erst /api/consent-link durchlaufen und Ergebnis in .env eintragen.");
 
-    var transactions = await bank.GetCurrentMonthTransactionsAsync(sessionId);
+    var iban = app.Configuration["EnableBanking:AccountIban"]
+        ?? throw new InvalidOperationException("EnableBanking:AccountIban fehlt in der Konfiguration.");
+    var transactions = await bank.GetCurrentMonthTransactionsAsync(sessionId, iban);
 
     var imported = 0;
     foreach (var tx in transactions)
