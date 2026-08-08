@@ -16,6 +16,9 @@
   --cat-abo: #4a3aa7;
   --cat-gesundheit: #e34948;
   --cat-sonstiges: #898781;
+
+  /* Status-Palette - eigenstaendig, nie mit kategorialen Farben teilen */
+  --status-critical: #d03b3b;
 }
 
 @media (prefers-color-scheme: dark) {

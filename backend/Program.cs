@@ -40,7 +40,7 @@ app.MapGet("/api/consent-callback", async (string code, EnableBankingClient bank
     return Results.Text($"Session erstellt. In .env eintragen:\nEnableBanking__SessionId={sessionId}");
 });
 
-app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db) =>
+app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db, DateOnly? from, DateOnly? to) =>
 {
     var sessionId = app.Configuration["EnableBanking:SessionId"];
     if (string.IsNullOrEmpty(sessionId))
@@ -48,7 +48,22 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
 
     var iban = app.Configuration["EnableBanking:AccountIban"]
         ?? throw new InvalidOperationException("EnableBanking:AccountIban fehlt in der Konfiguration.");
-    var transactions = await bank.GetCurrentMonthTransactionsAsync(sessionId, iban);
+
+    // Ohne Angabe: aktueller Monat (bisheriges Verhalten fuer den monatlichen Lauf ohne UI).
+    var rangeFrom = from ?? new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
+    var rangeTo = to ?? DateOnly.FromDateTime(DateTime.Today);
+
+    List<BankTransaction> transactions;
+    try
+    {
+        transactions = await bank.GetTransactionsAsync(sessionId, iban, rangeFrom, rangeTo);
+    }
+    catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+    {
+        // "Maximum daily access exceeded" kommt von der Bank selbst (PSD2-Tageslimit fuer
+        // ungefragte Zugriffe) und setzt sich erst am naechsten Tag zurueck, nicht in Minuten.
+        return Results.Json(new { error = $"Zugriff blockiert: {ex.Message}" }, statusCode: 429);
+    }
 
     var imported = 0;
     foreach (var tx in transactions)

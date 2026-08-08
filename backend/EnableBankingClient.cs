@@ -48,16 +48,17 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         return JsonDocument.Parse(await res.Content.ReadAsStreamAsync()).RootElement.Clone();
     }
 
-    public async Task<List<BankTransaction>> GetCurrentMonthTransactionsAsync(string sessionId, string targetIban)
+    public async Task<List<BankTransaction>> GetTransactionsAsync(string sessionId, string targetIban, DateOnly from, DateOnly to)
     {
         AuthenticateRequest();
         var session = await http.GetFromJsonAsync<SessionResponse>($"sessions/{sessionId}");
         var accountId = await FindAccountByIbanAsync(session!.Accounts, targetIban);
 
-        var from = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
         AuthenticateRequest();
-        var response = await http.GetFromJsonAsync<TransactionsEnvelope>(
-            $"accounts/{accountId}/transactions?date_from={from:yyyy-MM-dd}");
+        var transactionsRes = await http.GetAsync(
+            $"accounts/{accountId}/transactions?date_from={from:yyyy-MM-dd}&date_to={to:yyyy-MM-dd}");
+        await EnsureOkAsync(transactionsRes);
+        var response = await transactionsRes.Content.ReadFromJsonAsync<TransactionsEnvelope>();
 
         return response!.Transactions
             .Select(t =>
@@ -77,16 +78,45 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
 
     // Der Volksbank-Account hat mehrere verknuepfte Konten - hier gezielt das mit der
     // konfigurierten IBAN raussuchen statt uns auf die Reihenfolge zu verlassen.
+    // ponytail: prozessweiter Cache statt pro Request neu aufzuloesen - die Kontozuordnung
+    // aendert sich nicht, und Enable Banking rate-limitet /details recht knapp.
+    private static readonly Dictionary<string, string> AccountUidCache = new();
+
     private async Task<string> FindAccountByIbanAsync(List<string> accountUids, string targetIban)
     {
+        if (AccountUidCache.TryGetValue(targetIban, out var cached))
+            return cached;
+
         foreach (var uid in accountUids)
         {
             AuthenticateRequest();
-            var details = await http.GetFromJsonAsync<AccountDetails>($"accounts/{uid}/details");
+            var detailsRes = await http.GetAsync($"accounts/{uid}/details");
+            await EnsureOkAsync(detailsRes);
+            var details = await detailsRes.Content.ReadFromJsonAsync<AccountDetails>();
             if (details?.AccountId.Iban == targetIban)
+            {
+                AccountUidCache[targetIban] = uid;
                 return uid;
+            }
         }
         throw new InvalidOperationException($"Kein verknuepftes Konto mit IBAN {targetIban} gefunden.");
+    }
+
+    // Enable Banking/die Bank liefern bei Fehlern eine sprechende "message" im JSON-Body -
+    // die geht mit reinem EnsureSuccessStatusCode() verloren, hier extra rausziehen.
+    private static async Task EnsureOkAsync(HttpResponseMessage res)
+    {
+        if (res.IsSuccessStatusCode) return;
+
+        string? message = null;
+        try
+        {
+            var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+            if (body.TryGetProperty("message", out var m)) message = m.GetString();
+        }
+        catch { /* Fehlerantwort war kein JSON - Fallback unten */ }
+
+        throw new HttpRequestException(message ?? res.ReasonPhrase, null, res.StatusCode);
     }
 
     private void AuthenticateRequest() =>

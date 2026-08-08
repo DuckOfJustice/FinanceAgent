@@ -56,6 +56,7 @@ export default function MonthlyDashboard() {
   const [data, setData] = useState<CategorySummary[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [refreshLoading, setRefreshLoading] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -90,8 +91,14 @@ export default function MonthlyDashboard() {
 
   const refresh = async () => {
     setRefreshLoading(true)
-    await fetch('/api/refresh', { method: 'POST' })
-    loadSummary()
+    setRefreshError(null)
+    const res = await fetch(`/api/refresh?from=${from}&to=${to}`, { method: 'POST' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      setRefreshError(body?.error ?? `Fehler beim Abrufen (${res.status}).`)
+    } else {
+      loadSummary()
+    }
     setRefreshLoading(false)
   }
 
@@ -137,6 +144,10 @@ export default function MonthlyDashboard() {
       <p style={{ color: 'var(--ink-secondary)', fontSize: 14, marginTop: 0 }}>
         Zeitraum: {formatDe(from)} – {formatDe(to)}
       </p>
+
+      {refreshError && (
+        <p style={{ color: 'var(--status-critical)', fontSize: 14 }}>{refreshError}</p>
+      )}
 
       {data.length === 0 && !summaryLoading ? (
         <p style={{ color: 'var(--ink-secondary)' }}>Keine Daten für diesen Zeitraum.</p>
