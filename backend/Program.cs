@@ -71,23 +71,32 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
     return Results.Ok(new { imported });
 });
 
-app.MapGet("/api/summary", async (string month, FinanceDbContext db) =>
+app.MapGet("/api/summary", async (DateOnly from, DateOnly to, FinanceDbContext db) =>
 {
-    var from = DateOnly.Parse($"{month}-01");
-    var to = from.AddMonths(1);
-
     // ponytail: EF Core/Sqlite kann SUM() nicht auf decimal uebersetzen - bei der kleinen
     // Datenmenge eines persoenlichen Kontos reicht Aggregieren nach dem Laden.
-    var monthTransactions = await db.Transactions
-        .Where(t => t.BookingDate >= from && t.BookingDate < to)
+    var rangeTransactions = await db.Transactions
+        .Where(t => t.BookingDate >= from && t.BookingDate <= to)
         .ToListAsync();
 
-    var summary = monthTransactions
+    var summary = rangeTransactions
         .GroupBy(t => t.Category)
         .Select(g => new { category = g.Key, totalAmount = g.Sum(t => t.Amount) })
         .ToList();
 
     return Results.Ok(summary);
+});
+
+// Einzelabrechnungen fuer einen Balken (Kategorie + Zeitraum), fuer die Drilldown-Liste im Dashboard.
+app.MapGet("/api/transactions", async (DateOnly from, DateOnly to, string category, FinanceDbContext db) =>
+{
+    var transactions = await db.Transactions
+        .Where(t => t.BookingDate >= from && t.BookingDate <= to && t.Category == category)
+        .OrderByDescending(t => t.BookingDate)
+        .Select(t => new { t.BookingDate, t.Amount, t.CounterpartyName, t.Purpose })
+        .ToListAsync();
+
+    return Results.Ok(transactions);
 });
 
 app.Run();

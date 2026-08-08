@@ -85,3 +85,15 @@ button:disabled {
   opacity: 0.6;
   cursor: default;
 }
+
+select,
+input[type="date"] {
+  font: inherit;
+  font-size: 14px;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  color: var(--ink-primary);
+}
+
