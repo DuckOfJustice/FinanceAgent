@@ -1,0 +1,126 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace FinanceAgent.Api;
+
+public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
+{
+    // Einmalig bei der Ersteinrichtung: Link im Browser oeffnen, Volksbank-Login bestaetigen.
+    public async Task<string> StartAuthorizationAsync(string aspspName, string aspspCountry)
+    {
+        AuthenticateRequest();
+        var res = await http.PostAsJsonAsync("auth", new
+        {
+            aspsp = new { name = aspspName, country = aspspCountry },
+            access = new { valid_until = DateTime.UtcNow.AddDays(90).ToString("o") },
+            redirect_url = "http://localhost:8080/api/consent-callback",
+            state = Guid.NewGuid().ToString("N"),
+            psu_type = "personal"
+        });
+        res.EnsureSuccessStatusCode();
+        var body = await res.Content.ReadFromJsonAsync<AuthStartResponse>();
+        return body!.Url;
+    }
+
+    // Ziel des Redirects nach dem Bank-Login: tauscht den "code" aus der Callback-URL gegen eine SessionId.
+    public async Task<string> CreateSessionAsync(string code)
+    {
+        AuthenticateRequest();
+        var res = await http.PostAsJsonAsync("sessions", new { code });
+        res.EnsureSuccessStatusCode();
+        var body = await res.Content.ReadFromJsonAsync<SessionResponse>();
+        return body!.SessionId;
+    }
+
+    // Hilfsendpunkt fuer die Ersteinrichtung: den exakten ASPSP-Namen der eigenen Volksbank finden.
+    public async Task<JsonElement> ListInstitutionsAsync(string country)
+    {
+        AuthenticateRequest();
+        var res = await http.GetAsync($"aspsps?country={country}");
+        res.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await res.Content.ReadAsStreamAsync()).RootElement.Clone();
+    }
+
+    public async Task<List<BankTransaction>> GetCurrentMonthTransactionsAsync(string sessionId)
+    {
+        AuthenticateRequest();
+        var session = await http.GetFromJsonAsync<SessionResponse>($"sessions/{sessionId}");
+        var accountId = session!.Accounts.First();
+
+        var from = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
+        AuthenticateRequest();
+        var response = await http.GetFromJsonAsync<TransactionsEnvelope>(
+            $"accounts/{accountId}/transactions?date_from={from:yyyy-MM-dd}");
+
+        return response!.Transactions
+            .Select(t =>
+            {
+                var isDebit = t.CreditDebitIndicator == "DBIT";
+                return new BankTransaction(
+                    ExternalId: t.TransactionId,
+                    BookingDate: t.BookingDate,
+                    Amount: decimal.Parse(t.TransactionAmount.Amount, System.Globalization.CultureInfo.InvariantCulture) * (isDebit ? -1 : 1),
+                    CounterpartyName: isDebit ? t.Creditor?.Name : t.Debtor?.Name,
+                    Purpose: t.RemittanceInformation is { Count: > 0 } r ? string.Join(" ", r) : "");
+            })
+            .ToList();
+    }
+
+    private void AuthenticateRequest() =>
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", BuildJwt());
+
+    // ponytail: RS256-JWT von Hand gebaut statt einer JWT-Lib - drei Base64Url-Segmente,
+    // dafuer braucht's kein zusaetzliches NuGet-Package.
+    private string BuildJwt()
+    {
+        var appId = cfg["EnableBanking:AppId"]!;
+        var privateKeyPem = File.ReadAllText(cfg["EnableBanking:PrivateKeyPath"]!);
+
+        var header = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new { typ = "JWT", alg = "RS256", kid = appId }));
+        var now = DateTimeOffset.UtcNow;
+        var payload = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            iss = "enablebanking.com",
+            aud = "api.enablebanking.com",
+            iat = now.ToUnixTimeSeconds(),
+            exp = now.AddHours(1).ToUnixTimeSeconds()
+        }));
+
+        var unsigned = $"{header}.{payload}";
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(privateKeyPem);
+        var signature = rsa.SignData(Encoding.UTF8.GetBytes(unsigned), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+        return $"{unsigned}.{Base64UrlEncode(signature)}";
+    }
+
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private sealed record AuthStartResponse([property: JsonPropertyName("url")] string Url);
+
+    private sealed record SessionResponse(
+        [property: JsonPropertyName("session_id")] string SessionId,
+        [property: JsonPropertyName("accounts")] List<string> Accounts);
+
+    private sealed record TransactionsEnvelope([property: JsonPropertyName("transactions")] List<RawTransaction> Transactions);
+
+    private sealed record RawTransaction(
+        [property: JsonPropertyName("transaction_id")] string TransactionId,
+        [property: JsonPropertyName("booking_date")] DateOnly BookingDate,
+        [property: JsonPropertyName("transaction_amount")] RawAmount TransactionAmount,
+        [property: JsonPropertyName("credit_debit_indicator")] string CreditDebitIndicator,
+        [property: JsonPropertyName("creditor")] Party? Creditor,
+        [property: JsonPropertyName("debtor")] Party? Debtor,
+        [property: JsonPropertyName("remittance_information")] List<string>? RemittanceInformation);
+
+    private sealed record RawAmount([property: JsonPropertyName("amount")] string Amount);
+
+    private sealed record Party([property: JsonPropertyName("name")] string? Name);
+}
+
+public sealed record BankTransaction(string ExternalId, DateOnly BookingDate, decimal Amount, string? CounterpartyName, string Purpose);

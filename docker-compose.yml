@@ -1,0 +1,32 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    networks: [finance-net]
+    # kein "ports:" - nur das Backend darf ihn erreichen
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      - Ollama__BaseUrl=http://ollama:11434/
+    volumes:
+      - backend_data:/app/data
+      - ./backend/keys:/app/keys:ro
+    depends_on: [ollama]
+    networks: [finance-net]
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on: [backend]
+    networks: [finance-net]
+
+networks:
+  finance-net:
+
+volumes:
+  ollama_models:
+  backend_data:
