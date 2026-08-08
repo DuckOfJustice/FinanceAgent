@@ -74,11 +74,16 @@ app.MapGet("/api/summary", async (string month, FinanceDbContext db) =>
     var from = DateOnly.Parse($"{month}-01");
     var to = from.AddMonths(1);
 
-    var summary = await db.Transactions
+    // ponytail: EF Core/Sqlite kann SUM() nicht auf decimal uebersetzen - bei der kleinen
+    // Datenmenge eines persoenlichen Kontos reicht Aggregieren nach dem Laden.
+    var monthTransactions = await db.Transactions
         .Where(t => t.BookingDate >= from && t.BookingDate < to)
+        .ToListAsync();
+
+    var summary = monthTransactions
         .GroupBy(t => t.Category)
         .Select(g => new { category = g.Key, totalAmount = g.Sum(t => t.Amount) })
-        .ToListAsync();
+        .ToList();
 
     return Results.Ok(summary);
 });

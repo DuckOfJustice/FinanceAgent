@@ -17,7 +17,7 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         {
             aspsp = new { name = aspspName, country = aspspCountry },
             access = new { valid_until = DateTime.UtcNow.AddDays(90).ToString("o") },
-            redirect_url = "http://localhost:8080/api/consent-callback",
+            redirect_url = "https://localhost:8443/api/consent-callback",
             state = Guid.NewGuid().ToString("N"),
             psu_type = "personal"
         });
@@ -32,7 +32,10 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         AuthenticateRequest();
         var res = await http.PostAsJsonAsync("sessions", new { code });
         res.EnsureSuccessStatusCode();
-        var body = await res.Content.ReadFromJsonAsync<SessionResponse>();
+        // ponytail: POST /sessions liefert "accounts" verschachtelt, GET /sessions/{id} liefert
+        // "accounts" als reine UID-Strings - hier interessiert uns nur session_id, den Rest ignorieren
+        // wir bewusst statt ein drittes DTO fuer das Erstellungs-Schema zu pflegen.
+        var body = await res.Content.ReadFromJsonAsync<CreateSessionResponse>();
         return body!.SessionId;
     }
 
@@ -61,7 +64,9 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
             {
                 var isDebit = t.CreditDebitIndicator == "DBIT";
                 return new BankTransaction(
-                    ExternalId: t.TransactionId,
+                    // ponytail: manche Banken (u.a. VR Bank RheinAhrEifel) liefern transaction_id nicht,
+                    // dann auf entry_reference ausweichen.
+                    ExternalId: t.TransactionId ?? t.EntryReference ?? Guid.NewGuid().ToString(),
                     BookingDate: t.BookingDate,
                     Amount: decimal.Parse(t.TransactionAmount.Amount, System.Globalization.CultureInfo.InvariantCulture) * (isDebit ? -1 : 1),
                     CounterpartyName: isDebit ? t.Creditor?.Name : t.Debtor?.Name,
@@ -103,6 +108,8 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
 
     private sealed record AuthStartResponse([property: JsonPropertyName("url")] string Url);
 
+    private sealed record CreateSessionResponse([property: JsonPropertyName("session_id")] string SessionId);
+
     private sealed record SessionResponse(
         [property: JsonPropertyName("session_id")] string SessionId,
         [property: JsonPropertyName("accounts")] List<string> Accounts);
@@ -110,7 +117,8 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
     private sealed record TransactionsEnvelope([property: JsonPropertyName("transactions")] List<RawTransaction> Transactions);
 
     private sealed record RawTransaction(
-        [property: JsonPropertyName("transaction_id")] string TransactionId,
+        [property: JsonPropertyName("transaction_id")] string? TransactionId,
+        [property: JsonPropertyName("entry_reference")] string? EntryReference,
         [property: JsonPropertyName("booking_date")] DateOnly BookingDate,
         [property: JsonPropertyName("transaction_amount")] RawAmount TransactionAmount,
         [property: JsonPropertyName("credit_debit_indicator")] string CreditDebitIndicator,

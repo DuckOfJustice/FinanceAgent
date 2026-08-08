@@ -21,6 +21,9 @@ services:
     build: ./frontend
     ports:
       - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./frontend/certs:/etc/nginx/certs:ro
     depends_on: [backend]
     networks: [finance-net]
 
