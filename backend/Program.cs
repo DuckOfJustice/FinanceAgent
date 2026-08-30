@@ -70,7 +70,7 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
     {
         if (await db.Transactions.AnyAsync(t => t.ExternalId == tx.ExternalId)) continue;
 
-        var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose);
+        var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose, tx.Amount);
         db.Transactions.Add(new StoredTransaction
         {
             ExternalId = tx.ExternalId,
@@ -84,6 +84,26 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
     }
     await db.SaveChangesAsync();
     return Results.Ok(new { imported });
+});
+
+// Kategorisiert bereits gespeicherte Buchungen neu (z.B. nach Anpassung von
+// category-rules.json oder des Prompts) - /api/refresh setzt die Kategorie sonst
+// nur einmalig beim Import und fasst bestehende Zeilen nie wieder an.
+app.MapPost("/api/recategorize", async (CategorizationService categorizer, FinanceDbContext db) =>
+{
+    var all = await db.Transactions.ToListAsync();
+    var changed = 0;
+    foreach (var tx in all)
+    {
+        var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose, tx.Amount);
+        if (category != tx.Category)
+        {
+            tx.Category = category;
+            changed++;
+        }
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { total = all.Count, changed });
 });
 
 app.MapGet("/api/summary", async (DateOnly from, DateOnly to, FinanceDbContext db) =>

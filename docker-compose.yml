@@ -11,6 +11,10 @@ services:
     env_file: .env
     environment:
       - Ollama__BaseUrl=http://ollama:11434/
+    ports:
+      # nur fuer lokale Frontend-Entwicklung (npm run dev / vite proxy) direkt erreichbar,
+      # im normalen Betrieb laeuft alles ueber die nginx-Proxy-Route des frontend-Containers.
+      - "8081:8080"
     volumes:
       - backend_data:/app/data
       - ./backend/keys:/app/keys:ro

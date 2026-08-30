@@ -1,11 +1,13 @@
 :root {
   color-scheme: light;
-  --surface-page: #f9f9f7;
-  --surface-card: #fcfcfb;
+  --surface-page: #f0f0ed;
+  --surface-card: #ffffff;
   --ink-primary: #0b0b0b;
   --ink-secondary: #52514e;
   --ink-muted: #898781;
   --border: rgba(11, 11, 11, 0.10);
+  --font-sans: 'Inter', system-ui, -apple-system, "Segoe UI", sans-serif;
+  --shadow-card: 0 1px 2px rgba(16, 24, 32, 0.04), 0 4px 12px rgba(16, 24, 32, 0.05);
 
   --cat-lebensmittel: #2a78d6;
   --cat-miete: #eb6834;
@@ -16,6 +18,10 @@
   --cat-abo: #4a3aa7;
   --cat-gesundheit: #e34948;
   --cat-sonstiges: #898781;
+  --cat-diva: #0e9594;
+  --cat-partnerkarten: #a8763e;
+  --cat-stromgas: #c9a227;
+  --cat-vertraege: #5c6bc0;
 
   /* Status-Palette - eigenstaendig, nie mit kategorialen Farben teilen */
   --status-critical: #d03b3b;
@@ -40,6 +46,11 @@
     --cat-abo: #9085e9;
     --cat-gesundheit: #e66767;
     --cat-sonstiges: #898781;
+    --cat-diva: #2fc2c1;
+    --cat-partnerkarten: #c9915a;
+    --cat-stromgas: #e0b93a;
+    --cat-vertraege: #7986cb;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
   }
 }
 
@@ -61,6 +72,11 @@
   --cat-abo: #9085e9;
   --cat-gesundheit: #e66767;
   --cat-sonstiges: #898781;
+  --cat-diva: #2fc2c1;
+  --cat-partnerkarten: #c9915a;
+  --cat-stromgas: #e0b93a;
+  --cat-vertraege: #7986cb;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
 }
 
 * {
@@ -71,17 +87,33 @@ body {
   margin: 0;
   background: var(--surface-page);
   color: var(--ink-primary);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font: inherit;
+  font-weight: 500;
   padding: 0.6rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface-card);
   color: var(--ink-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease-out, border-color 0.15s ease-out, transform 0.1s ease-out;
+}
+
+button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ink-primary) 25%, var(--border));
+  background: color-mix(in srgb, var(--surface-card) 92%, var(--ink-primary));
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -94,9 +126,299 @@ input[type="date"] {
   font: inherit;
   font-size: 14px;
   padding: 0.5rem 0.6rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface-card);
   color: var(--ink-primary);
+  transition: border-color 0.15s ease-out;
+}
+
+select:hover,
+input[type="date"]:hover {
+  border-color: color-mix(in srgb, var(--ink-primary) 25%, var(--border));
+}
+
+select:focus-visible,
+input[type="date"]:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--cat-vertraege);
+  outline-offset: 1px;
+}
+
+.panel {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  box-shadow: var(--shadow-card);
+}
+
+.panel-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: var(--ink-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.kpi-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-card);
+}
+
+.kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-bottom: 0.4rem;
+}
+
+.kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.kpi-icon-up {
+  background: color-mix(in srgb, var(--cat-gehalt) 15%, transparent);
+  color: var(--cat-gehalt);
+}
+
+.kpi-icon-down {
+  background: color-mix(in srgb, var(--status-critical) 15%, transparent);
+  color: var(--status-critical);
+}
+
+.kpi-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Kategorie-Zeilen: eigenes kompaktes Balken-Layout statt Recharts-SVG,
+   damit Betragslabels nie umbrechen und Zeilenhoehe unter Kontrolle bleibt. */
+.cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.cat-row {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.4rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: opacity 0.15s ease-out, background-color 0.15s ease-out;
+}
+
+.cat-row:hover {
+  background: color-mix(in srgb, var(--ink-primary) 5%, transparent);
+}
+
+.cat-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.3rem;
+}
+
+.cat-name {
+  font-size: 14px;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cat-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 0.45rem;
+  vertical-align: middle;
+}
+
+.cat-amount {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cat-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.cat-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s ease-out;
+}
+
+/* Transaktionstabelle: begrenzte Hoehe mit eigenem Scroll + fixierter
+   Kopfzeile, damit lange Listen die Seite nicht endlos verlaengern. */
+.tx-table-wrap {
+  max-height: 620px;
+  overflow-y: auto;
+}
+
+.tx-table-wrap table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tx-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-card);
+  z-index: 1;
+  text-align: left;
+  padding: 0.5rem;
+  color: var(--ink-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.tx-table-wrap tbody td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.tx-table-wrap tbody tr:nth-child(even) {
+  background: rgba(128, 128, 128, 0.06);
+}
+
+.tx-purpose,
+.tx-counterparty {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-purpose {
+  color: var(--ink-secondary);
+}
+
+/* App-Shell: Kopfzeile klar vom Seitenhintergrund abgesetzt statt nacktem
+   Titel direkt auf der Seite. */
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0.85rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.app-logo {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.app-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.app-tagline {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.app-main {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 1.75rem 1.5rem 3rem;
+}
+
+/* Toolbar: Filter und Aktionen als klar abgesetzte Leiste statt loser
+   Elemente direkt auf dem Seitenhintergrund. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 1.25rem;
+}
+
+.toolbar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+@media (max-width: 860px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .toolbar-actions {
+    margin-left: 0;
+  }
 }
 

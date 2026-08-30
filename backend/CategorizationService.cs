@@ -8,22 +8,41 @@ namespace FinanceAgent.Api;
 public sealed class CategorizationService(HttpClient ollama, IConfiguration cfg)
 {
     public static readonly string[] Categories =
-        ["Lebensmittel", "Miete", "Freizeit", "Transport", "Versicherung",
-         "Gehalt", "Abo", "Gesundheit", "Sonstiges"];
+        ["Lebensmittel", "Miete", "Transport", "Gehalt", "Abo", "Sonstiges",
+         "Diva", "Partnerkarten", "Strom und Gas", "Verträge"];
 
     private const string RulesPath = "category-rules.json";
 
-    public async Task<string> CategorizeAsync(string? counterpartyName, string purpose)
+    public async Task<string> CategorizeAsync(string? counterpartyName, string purpose, decimal amount)
     {
-        var configured = TryGetConfiguredCategory(counterpartyName, purpose);
-        if (configured is not null) return configured;
+        var category = TryGetConfiguredCategory(counterpartyName, purpose)
+            ?? await CategorizeWithLlmAsync(counterpartyName, purpose);
 
+        // "Gehalt" ist per Definition eine Gutschrift - eine Belastung (negativer Betrag)
+        // kann nie Gehalt sein, egal was Regel oder Modell dazu sagen.
+        if (category == "Gehalt" && amount <= 0) category = "Sonstiges";
+
+        return category;
+    }
+
+    private async Task<string> CategorizeWithLlmAsync(string? counterpartyName, string purpose)
+    {
         var maskedName = MaskSensitiveData(counterpartyName ?? "");
         var maskedPurpose = MaskSensitiveData(purpose);
 
         var systemPrompt = $$"""
-            Du bist ein Kategorisierer fuer Bankumsaetze. Ordne den Umsatz GENAU EINER
-            der folgenden Kategorien zu: {{string.Join(", ", Categories)}}.
+            Du bist ein Kategorisierer fuer Bankumsaetze auf einem privaten Girokonto.
+            Ordne den Umsatz GENAU EINER der folgenden Kategorien zu:
+            {{string.Join(", ", Categories)}}.
+
+            Wichtige Regeln:
+            - "Gehalt" NUR bei einer eingehenden Lohn-/Gehaltszahlung eines Arbeitgebers
+              (Verwendungszweck enthaelt typischerweise "Lohn", "Gehalt" oder "Verguetung").
+              Einzelne Kartenzahlungen, Ueberweisungen an/von Online-Shops, Zahlungs-
+              dienstleistern (z.B. Adyen, PAYONE), Supermaerkten oder Privatpersonen sind
+              KEIN "Gehalt" - auch nicht, wenn der Betrag positiv ist.
+            - Bei Unsicherheit "Sonstiges" waehlen statt zu raten.
+
             Antworte AUSSCHLIESSLICH mit validem JSON in diesem Format, kein Freitext,
             keine Erklaerung, kein Markdown:
             {"category": "<eine der Kategorien>"}
@@ -56,12 +75,23 @@ public sealed class CategorizationService(HttpClient ollama, IConfiguration cfg)
         if (rules is null) return null;
 
         var haystack = $"{counterpartyName} {purpose}";
+
+        // Bei mehreren treffenden Mustern gewinnt das laengste (spezifischste), damit z.B.
+        // "Telekom Deutschland GmbH" nicht vom generischen Muster "vertrag" ueberdeckt wird,
+        // nur weil "Vertragskonto" im Verwendungszweck zufaellig "vertrag" enthaelt.
+        string? bestCategory = null;
+        var bestLength = -1;
         foreach (var (pattern, category) in rules)
         {
-            if (haystack.Contains(pattern, StringComparison.OrdinalIgnoreCase) && Categories.Contains(category))
-                return category;
+            if (!Categories.Contains(category)) continue;
+            if (!haystack.Contains(pattern, StringComparison.OrdinalIgnoreCase)) continue;
+            if (pattern.Length > bestLength)
+            {
+                bestLength = pattern.Length;
+                bestCategory = category;
+            }
         }
-        return null;
+        return bestCategory;
     }
 
     private string MaskSensitiveData(string text)
