@@ -1,5 +1,6 @@
 using FinanceDuck.Api;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 Directory.CreateDirectory("data");
 
@@ -11,13 +12,64 @@ builder.Services.AddDbContext<FinanceDbContext>(o =>
 builder.Services.AddHttpClient<EnableBankingClient>(c =>
     c.BaseAddress = new Uri(builder.Configuration["EnableBanking:BaseUrl"]!));
 
-builder.Services.AddHttpClient<CategorizationService>(c =>
-    c.BaseAddress = new Uri(builder.Configuration["Ollama:BaseUrl"]!));
+builder.Services.AddScoped<CategorizationService>();
 
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
-    scope.ServiceProvider.GetRequiredService<FinanceDbContext>().Database.EnsureCreated();
+{
+    var db = scope.ServiceProvider.GetRequiredService<FinanceDbContext>();
+    db.Database.EnsureCreated();
+
+    // EnsureCreated() legt das Schema nur bei komplett neuer DB-Datei an - bestehende
+    // Installationen (DB existierte schon vor der Categories-Tabelle) bekommen die neue
+    // Tabelle sonst nie. Keine echten EF-Migrations fuer dieses Ein-Personen-Tool, daher hier
+    // idempotent per Raw-SQL nachziehen statt eine ganze Migrations-Pipeline aufzusetzen.
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "Categories" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_Categories" PRIMARY KEY AUTOINCREMENT,
+            "Name" TEXT NOT NULL
+        )
+        """);
+    db.Database.ExecuteSqlRaw("""CREATE UNIQUE INDEX IF NOT EXISTS "IX_Categories_Name" ON "Categories" ("Name")""");
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "Rules" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_Rules" PRIMARY KEY AUTOINCREMENT,
+            "Pattern" TEXT NOT NULL,
+            "CategoryId" INTEGER NOT NULL
+        )
+        """);
+
+    // Einmalige Erstbefuellung - vormals die feste Kategorienliste in CategorizationService.
+    if (!db.Categories.Any())
+    {
+        string[] defaultCategories =
+            ["Lebensmittel & Haushalt", "Miete", "Freizeit & Sport", "Tankstelle", "Versicherung",
+             "Gehalt", "Abo", "Gesundheit", "Sonstiges",
+             "Fitness Studio", "Audi Leasing", "Online-Shop", "Restaurant & Lieferservice", "Möbel", "Kreditkarte",
+             "Telefon & Internet", "Rundfunkbeitrag"];
+        db.Categories.AddRange(defaultCategories.Select(name => new Category { Name = name }));
+        db.SaveChanges();
+    }
+
+    // Einmalige Migration der alten category-rules.json in die Rules-Tabelle - danach wird
+    // die Datei nicht mehr gelesen, CategorizationService fragt die DB ab.
+    if (!db.Rules.Any() && File.Exists("category-rules.json"))
+    {
+        var legacyRules = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText("category-rules.json")) ?? [];
+        var categoryIdsByName = db.Categories.ToDictionary(c => c.Name, c => c.Id);
+        foreach (var (pattern, categoryName) in legacyRules)
+        {
+            if (!categoryIdsByName.TryGetValue(categoryName, out var categoryId))
+            {
+                Console.WriteLine($"[category-rules.json] Unbekannte Kategorie '{categoryName}' fuer Muster '{pattern}' - Regel wird nicht migriert.");
+                continue;
+            }
+            db.Rules.Add(new Rule { Pattern = pattern, CategoryId = categoryId });
+        }
+        db.SaveChanges();
+    }
+}
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.
 app.MapGet("/api/institutions", async (EnableBankingClient bank) =>
@@ -106,6 +158,89 @@ app.MapPost("/api/recategorize", async (CategorizationService categorizer, Finan
     return Results.Ok(new { total = all.Count, changed });
 });
 
+app.MapGet("/api/categories", async (FinanceDbContext db) =>
+    Results.Ok(await db.Categories.OrderBy(c => c.Name).Select(c => new { c.Id, c.Name }).ToListAsync()));
+
+app.MapPost("/api/categories", async (CategoryRequest body, FinanceDbContext db) =>
+{
+    var name = body.Name?.Trim();
+    if (string.IsNullOrEmpty(name)) return Results.BadRequest("Name darf nicht leer sein.");
+    if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
+
+    var category = new Category { Name = name };
+    db.Categories.Add(category);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { category.Id, category.Name });
+});
+
+app.MapPut("/api/categories/{id:int}", async (int id, CategoryRequest body, FinanceDbContext db) =>
+{
+    var name = body.Name?.Trim();
+    if (string.IsNullOrEmpty(name)) return Results.BadRequest("Name darf nicht leer sein.");
+
+    var category = await db.Categories.FindAsync(id);
+    if (category is null) return Results.NotFound();
+    if (category.Name == name) return Results.Ok(new { category.Id, category.Name });
+    if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
+
+    var oldName = category.Name;
+    category.Name = name;
+    // StoredTransaction.Category ist ein reiner String (kein Fremdschluessel) - beim Umbenennen
+    // muessen bereits gespeicherte Buchungen mitgezogen werden, sonst verwaisen sie unter dem alten Namen.
+    await db.Transactions.Where(t => t.Category == oldName)
+        .ExecuteUpdateAsync(s => s.SetProperty(t => t.Category, name));
+    await db.SaveChangesAsync();
+    return Results.Ok(new { category.Id, category.Name });
+});
+
+app.MapDelete("/api/categories/{id:int}", async (int id, FinanceDbContext db) =>
+{
+    var category = await db.Categories.FindAsync(id);
+    if (category is null) return Results.NotFound();
+    // "Sonstiges" ist das Reassignment-Ziel fuer geloeschte Kategorien und der LLM-Fallback -
+    // ohne sie liefe beides ins Leere.
+    if (category.Name == "Sonstiges") return Results.BadRequest("\"Sonstiges\" kann nicht geloescht werden.");
+
+    await db.Transactions.Where(t => t.Category == category.Name)
+        .ExecuteUpdateAsync(s => s.SetProperty(t => t.Category, "Sonstiges"));
+    // Eine Regel, die auf eine geloeschte Kategorie zeigt, ist sinnlos (anders als bei Buchungen
+    // gibt es fuer Regeln kein sinnvolles "Sonstiges"-Reassignment) - also mit loeschen.
+    await db.Rules.Where(r => r.CategoryId == id).ExecuteDeleteAsync();
+    db.Categories.Remove(category);
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapGet("/api/rules", async (FinanceDbContext db) =>
+    Results.Ok(await db.Rules
+        .Join(db.Categories, r => r.CategoryId, c => c.Id, (r, c) => new { r.Id, r.Pattern, CategoryId = c.Id, CategoryName = c.Name })
+        .OrderBy(x => x.Pattern)
+        .ToListAsync()));
+
+app.MapPost("/api/rules", async (RuleRequest body, FinanceDbContext db) =>
+{
+    var pattern = body.Pattern?.Trim();
+    if (string.IsNullOrEmpty(pattern)) return Results.BadRequest("Muster darf nicht leer sein.");
+    if (await db.Rules.AnyAsync(r => r.Pattern == pattern)) return Results.Conflict("Muster existiert bereits.");
+
+    var category = await db.Categories.FindAsync(body.CategoryId);
+    if (category is null) return Results.BadRequest("Unbekannte Kategorie.");
+
+    var rule = new Rule { Pattern = pattern, CategoryId = category.Id };
+    db.Rules.Add(rule);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { rule.Id, rule.Pattern, CategoryId = category.Id, CategoryName = category.Name });
+});
+
+app.MapDelete("/api/rules/{id:int}", async (int id, FinanceDbContext db) =>
+{
+    var rule = await db.Rules.FindAsync(id);
+    if (rule is null) return Results.NotFound();
+    db.Rules.Remove(rule);
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
 app.MapGet("/api/summary", async (DateOnly from, DateOnly to, FinanceDbContext db) =>
 {
     // ponytail: EF Core/Sqlite kann SUM() nicht auf decimal uebersetzen - bei der kleinen
@@ -174,3 +309,6 @@ app.MapGet("/api/history", async (DateOnly? end, int? months, FinanceDbContext d
 });
 
 app.Run();
+
+record CategoryRequest(string? Name);
+record RuleRequest(string? Pattern, int CategoryId);
