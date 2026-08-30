@@ -431,6 +431,27 @@ button:focus-visible,
   color: var(--ink-secondary);
 }
 
+/* Kategorie-Dropdown in der Buchungszeile: wirkt wie Text, bis man draufhovert/fokussiert -
+   fuehlt sich wie Inline-Bearbeitung an statt wie ein Formularfeld in der Tabelle. */
+.tx-category-select {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  padding: 0.3rem 0.4rem;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tx-category-select:hover:not(:disabled),
+.tx-category-select:focus-visible {
+  border-color: var(--border);
+  background: var(--surface-card);
+}
+
+.tx-category-select:disabled {
+  opacity: 0.5;
+}
+
 /* App-Shell: Kopfzeile klar vom Seitenhintergrund abgesetzt statt nacktem
    Titel direkt auf der Seite. Breite deutlich groesser als klassische
    Formularseiten, damit Desktop-Platz genutzt wird. */
