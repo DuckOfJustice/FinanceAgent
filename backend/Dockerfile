@@ -11,4 +11,4 @@ COPY --from=build /app .
 RUN mkdir -p /app/data
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
-ENTRYPOINT ["dotnet", "FinanceAgent.Api.dll"]
+ENTRYPOINT ["dotnet", "FinanceDuck.Api.dll"]

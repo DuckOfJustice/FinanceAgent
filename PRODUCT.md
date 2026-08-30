@@ -10,7 +10,7 @@ A single user (the developer/operator) reviewing their own bank transactions onc
 
 ## Product Purpose
 
-FinanceAgent pulls the user's own bank transactions via Enable Banking, categorizes them locally with an LLM, and shows a monthly spending breakdown by category. Success = the user can glance at the dashboard and immediately understand where their money went this month.
+FinanceDuck pulls the user's own bank transactions via Enable Banking, categorizes them locally with an LLM, and shows a monthly spending breakdown by category. Success = the user can glance at the dashboard and immediately understand where their money went this month.
 
 ## Brand Personality
 

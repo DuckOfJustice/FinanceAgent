@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type CategorySummary = { category: string; totalAmount: number }
 type Transaction = { bookingDate: string; amount: number; counterpartyName: string | null; purpose: string }
@@ -9,15 +8,42 @@ type Transaction = { bookingDate: string; amount: number; counterpartyName: stri
 const CATEGORY_COLORS: Record<string, string> = {
   Lebensmittel: 'var(--cat-lebensmittel)',
   Miete: 'var(--cat-miete)',
-  Freizeit: 'var(--cat-freizeit)',
   Transport: 'var(--cat-transport)',
-  Versicherung: 'var(--cat-versicherung)',
   Gehalt: 'var(--cat-gehalt)',
   Abo: 'var(--cat-abo)',
-  Gesundheit: 'var(--cat-gesundheit)',
   Sonstiges: 'var(--cat-sonstiges)',
+  Diva: 'var(--cat-diva)',
+  Partnerkarten: 'var(--cat-partnerkarten)',
+  'Strom und Gas': 'var(--cat-stromgas)',
+  'Verträge': 'var(--cat-vertraege)',
 }
 const FALLBACK_COLOR = 'var(--cat-sonstiges)'
+
+const iconProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+
+const IconRefresh = () => (
+  <svg {...iconProps}><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" /></svg>
+)
+
+const IconSparkles = () => (
+  <svg {...iconProps}><path d="M12 3v4M12 17v4M5 12H1M23 12h-4M7.05 7.05 4.22 4.22M19.78 19.78l-2.83-2.83M16.95 7.05l2.83-2.83M4.22 19.78l2.83-2.83" /></svg>
+)
+
+const IconTrendUp = () => (
+  <svg {...iconProps} width={13} height={13} strokeWidth={2.5}><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+)
+
+const IconTrendDown = () => (
+  <svg {...iconProps} width={13} height={13} strokeWidth={2.5}><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
+)
+
+const IconClose = () => (
+  <svg {...iconProps} width={14} height={14}><path d="M18 6 6 18M6 6l12 12" /></svg>
+)
+
+const IconCalendar = () => (
+  <svg {...iconProps} width={14} height={14}><rect x="3" y="4" width="18" height="18" rx="3" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+)
 
 const eur = (n: number) => `${n < 0 ? '-' : '+'}${Math.abs(n).toFixed(2)} €`
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -44,9 +70,6 @@ function monthOptions() {
   })
 }
 
-const labelStyle = { display: 'flex', flexDirection: 'column' as const, gap: '0.25rem', fontSize: 13, color: 'var(--ink-secondary)' }
-const cellPad = { padding: '0.5rem' }
-
 export default function MonthlyDashboard() {
   const months = useMemo(monthOptions, [])
   const [selectedMonth, setSelectedMonth] = useState(months[0].value)
@@ -62,12 +85,38 @@ export default function MonthlyDashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [transactionsLoading, setTransactionsLoading] = useState(false)
 
+  const [recategorizeLoading, setRecategorizeLoading] = useState(false)
+  const [recategorizeMsg, setRecategorizeMsg] = useState<string | null>(null)
+
+  // Von/Bis auf einen Button minimiert, der bei Klick das Popover mit den beiden
+  // Datumsfeldern zeigt - schliesst sich per Klick ausserhalb wieder.
+  const [rangeOpen, setRangeOpen] = useState(false)
+  const rangeRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!rangeOpen) return
+    const onClick = (e: MouseEvent) => {
+      if (rangeRef.current && !rangeRef.current.contains(e.target as Node)) {
+        setRangeOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [rangeOpen])
+
   const loadSummary = () => {
     setSummaryLoading(true)
     fetch(`/api/summary?from=${from}&to=${to}`)
       .then(r => r.json())
       .then((rows: CategorySummary[]) =>
-        setData([...rows].sort((a, b) => Math.abs(b.totalAmount) - Math.abs(a.totalAmount)))
+        setData([...rows].sort((a, b) => {
+          if (a.category === 'Sonstiges') return 1
+          if (b.category === 'Sonstiges') return -1
+          const aPositive = a.totalAmount >= 0
+          const bPositive = b.totalAmount >= 0
+          if (aPositive !== bPositive) return aPositive ? -1 : 1
+          return Math.abs(b.totalAmount) - Math.abs(a.totalAmount)
+        }))
       )
       .finally(() => setSummaryLoading(false))
   }
@@ -77,13 +126,14 @@ export default function MonthlyDashboard() {
     loadSummary()
   }, [from, to])
 
+  // Ohne ausgewaehlte Kategorie: juengste Buchungen im Zeitraum, damit die Liste beim
+  // initialen Laden nicht leer ist. Mit Kategorie: wie bisher der volle Drilldown.
   useEffect(() => {
-    if (!selectedCategory) {
-      setTransactions([])
-      return
-    }
     setTransactionsLoading(true)
-    fetch(`/api/transactions?from=${from}&to=${to}&category=${encodeURIComponent(selectedCategory)}`)
+    const url = selectedCategory
+      ? `/api/transactions?from=${from}&to=${to}&category=${encodeURIComponent(selectedCategory)}`
+      : `/api/transactions?from=${from}&to=${to}`
+    fetch(url)
       .then(r => r.json())
       .then(setTransactions)
       .finally(() => setTransactionsLoading(false))
@@ -102,6 +152,21 @@ export default function MonthlyDashboard() {
     setRefreshLoading(false)
   }
 
+  const recategorize = async () => {
+    setRecategorizeLoading(true)
+    setRecategorizeMsg(null)
+    const res = await fetch('/api/recategorize', { method: 'POST' })
+    if (res.ok) {
+      const body = await res.json()
+      setRecategorizeMsg(`${body.changed} von ${body.total} Buchungen neu zugeordnet.`)
+      setSelectedCategory(null)
+      loadSummary()
+    } else {
+      setRecategorizeMsg(`Fehler bei der Neukategorisierung (${res.status}).`)
+    }
+    setRecategorizeLoading(false)
+  }
+
   const handleMonthSelect = (value: string) => {
     setSelectedMonth(value)
     const option = months.find(m => m.value === value)
@@ -112,140 +177,235 @@ export default function MonthlyDashboard() {
   }
 
   const chartData = data.map(d => ({ ...d, absAmount: Math.abs(d.totalAmount) }))
-  const chartHeight = Math.max(chartData.length * 44, 120)
+  const incomeRows = chartData.filter(d => d.totalAmount >= 0)
+  const expenseRows = chartData.filter(d => d.totalAmount < 0)
+  const totalIncomeAbs = incomeRows.reduce((sum, d) => sum + d.absAmount, 0)
+  const totalExpenseAbs = expenseRows.reduce((sum, d) => sum + d.absAmount, 0)
+
+  const kpis = useMemo(() => {
+    const income = data.filter(d => d.totalAmount > 0).reduce((sum, d) => sum + d.totalAmount, 0)
+    const expenses = data.filter(d => d.totalAmount < 0).reduce((sum, d) => sum + d.totalAmount, 0)
+    const balance = income + expenses
+    const savingsRate = income > 0 ? (balance / income) * 100 : null
+    return { income, expenses, balance, savingsRate }
+  }, [data])
+
+  const renderCatRow = (d: typeof chartData[number], groupTotal: number) => {
+    const pct = groupTotal > 0 ? (d.absAmount / groupTotal) * 100 : 0
+    const barPct = groupTotal > 0 ? Math.max(pct, 2) : 0
+    const color = CATEGORY_COLORS[d.category] ?? FALLBACK_COLOR
+    const isSelected = selectedCategory === d.category
+    const dimmed = selectedCategory !== null && !isSelected
+    return (
+      <button
+        key={d.category}
+        type="button"
+        className={`cat-row${isSelected ? ' is-selected' : ''}`}
+        style={{
+          opacity: dimmed ? 0.45 : 1,
+          background: isSelected ? `color-mix(in srgb, ${color} 14%, transparent)` : undefined,
+          boxShadow: isSelected ? `inset 3px 0 0 ${color}` : undefined,
+        }}
+        onClick={() => setSelectedCategory(prev => (prev === d.category ? null : d.category))}
+      >
+        <div className="cat-row-head">
+          <span className="cat-name">
+            <span className="cat-dot" style={{ background: color }} />
+            {d.category}
+          </span>
+          <span className="cat-row-figures">
+            <span className="cat-pct">{Math.round(pct)}%</span>
+            <span className="cat-amount" style={{ color: d.totalAmount >= 0 ? 'var(--cat-gehalt)' : 'var(--ink-primary)' }}>
+              {eur(d.totalAmount)}
+            </span>
+          </span>
+        </div>
+        <div className="cat-bar-track">
+          <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: color }} />
+        </div>
+      </button>
+    )
+  }
 
   return (
     <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', marginBottom: '1rem' }}>
-        <label style={labelStyle}>
-          Monat
-          <select value={selectedMonth} onChange={e => handleMonthSelect(e.target.value)}>
-            {months.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-        </label>
+      <div className="control-bar">
+        <div className="control-bar-filters">
+          <label className="field">
+            <span className="field-label">Monat</span>
+            <select value={selectedMonth} onChange={e => handleMonthSelect(e.target.value)}>
+              {months.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
 
-        <label style={labelStyle}>
-          Von
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-        </label>
+          <div className="date-popover" ref={rangeRef}>
+            <button type="button" className="date-popover-trigger" onClick={() => setRangeOpen(o => !o)}>
+              <IconCalendar />
+              {formatDe(from)} – {formatDe(to)}
+            </button>
 
-        <label style={labelStyle}>
-          Bis
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-        </label>
+            {rangeOpen && (
+              <div className="date-popover-panel">
+                <label className="field field-compact">
+                  <span className="field-label">Von</span>
+                  <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+                </label>
+                <label className="field field-compact">
+                  <span className="field-label">Bis</span>
+                  <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
 
-        <button onClick={refresh} disabled={refreshLoading}>
-          {refreshLoading ? 'Lädt...' : 'Umsätze abrufen & kategorisieren'}
-        </button>
+        <div className="control-bar-actions">
+          <button onClick={refresh} disabled={refreshLoading}>
+            <IconRefresh />
+            {refreshLoading ? 'Lädt...' : 'Umsätze abrufen'}
+          </button>
+
+          <button onClick={recategorize} disabled={recategorizeLoading} title="Ordnet bereits gespeicherte Buchungen anhand der aktuellen Regeln/des Modells neu zu">
+            <IconSparkles />
+            {recategorizeLoading ? 'Ordne neu zu...' : 'Neu kategorisieren'}
+          </button>
+        </div>
       </div>
 
-      <p style={{ color: 'var(--ink-secondary)', fontSize: 14, marginTop: 0 }}>
-        Zeitraum: {formatDe(from)} – {formatDe(to)}
-      </p>
-
-      {refreshError && (
-        <p style={{ color: 'var(--status-critical)', fontSize: 14 }}>{refreshError}</p>
-      )}
+      {refreshError && <p className="status-text status-critical-text">{refreshError}</p>}
+      {recategorizeMsg && <p className="status-text">{recategorizeMsg}</p>}
 
       {data.length === 0 && !summaryLoading ? (
-        <p style={{ color: 'var(--ink-secondary)' }}>Keine Daten für diesen Zeitraum.</p>
+        <p className="muted-text">Keine Daten für diesen Zeitraum.</p>
       ) : (
-        <div style={{ opacity: summaryLoading ? 0.5 : 1, transition: 'opacity 0.15s ease-out' }}>
-          <ResponsiveContainer width="100%" height={chartHeight}>
-            <BarChart
-              data={chartData}
-              layout="vertical"
-              barSize={20}
-              margin={{ top: 4, right: 72, bottom: 4, left: 8 }}
-            >
-              <XAxis type="number" hide />
-              <YAxis
-                type="category"
-                dataKey="category"
-                axisLine={false}
-                tickLine={false}
-                width={110}
-                tick={{ fill: 'var(--ink-primary)', fontSize: 14 }}
-              />
-              <Tooltip
-                formatter={(value: number, _name: string, item: { payload?: CategorySummary }) =>
-                  eur(item.payload?.totalAmount ?? value)
-                }
-                contentStyle={{
-                  background: 'var(--surface-card)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  color: 'var(--ink-primary)',
-                }}
-                labelStyle={{ color: 'var(--ink-primary)' }}
-              />
-              <Bar
-                dataKey="absAmount"
-                radius={[0, 4, 4, 0]}
-                cursor="pointer"
-                onClick={(entry: CategorySummary) =>
-                  setSelectedCategory(prev => (prev === entry.category ? null : entry.category))
-                }
-              >
-                {chartData.map(d => (
-                  <Cell
-                    key={d.category}
-                    fill={CATEGORY_COLORS[d.category] ?? FALLBACK_COLOR}
-                    opacity={selectedCategory && selectedCategory !== d.category ? 0.35 : 1}
-                  />
-                ))}
-                <LabelList
-                  dataKey="totalAmount"
-                  position="right"
-                  formatter={(v: number) => eur(v)}
-                  style={{ fill: 'var(--ink-secondary)', fontSize: 13 }}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+        <>
+          <div className="kpi-grid" style={{ opacity: summaryLoading ? 0.5 : 1, transition: 'opacity 0.15s ease-out' }}>
+            <div className="kpi-card">
+              <div className="kpi-label">
+                <span className="kpi-icon kpi-icon-up"><IconTrendUp /></span>
+                Einnahmen
+              </div>
+              <div className="kpi-value" style={{ color: 'var(--cat-gehalt)' }}>{eur(kpis.income)}</div>
+            </div>
 
-      {selectedCategory && (
-        <div style={{ marginTop: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>{selectedCategory}</h2>
-            <button onClick={() => setSelectedCategory(null)}>Schließen</button>
+            <div className="kpi-card">
+              <div className="kpi-label">
+                <span className="kpi-icon kpi-icon-down"><IconTrendDown /></span>
+                Ausgaben
+              </div>
+              <div className="kpi-value" style={{ color: 'var(--status-critical)' }}>{eur(kpis.expenses)}</div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-label">
+                <span className={`kpi-icon ${kpis.balance >= 0 ? 'kpi-icon-up' : 'kpi-icon-down'}`}>
+                  {kpis.balance >= 0 ? <IconTrendUp /> : <IconTrendDown />}
+                </span>
+                Saldo
+              </div>
+              <div className="kpi-value" style={{ color: kpis.balance >= 0 ? 'var(--cat-gehalt)' : 'var(--status-critical)' }}>
+                {eur(kpis.balance)}
+              </div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-label">
+                <span className={`kpi-icon ${kpis.savingsRate === null || kpis.savingsRate >= 0 ? 'kpi-icon-up' : 'kpi-icon-down'}`}>
+                  {kpis.savingsRate === null || kpis.savingsRate >= 0 ? <IconTrendUp /> : <IconTrendDown />}
+                </span>
+                Sparquote
+              </div>
+              <div
+                className="kpi-value"
+                style={{ color: kpis.savingsRate === null ? 'var(--ink-secondary)' : kpis.savingsRate >= 0 ? 'var(--cat-gehalt)' : 'var(--status-critical)' }}
+              >
+                {kpis.savingsRate === null ? '–' : `${kpis.savingsRate >= 0 ? '+' : ''}${kpis.savingsRate.toFixed(0)}%`}
+              </div>
+            </div>
           </div>
 
-          {transactionsLoading ? (
-            <p style={{ color: 'var(--ink-secondary)' }}>Lädt...</p>
-          ) : transactions.length === 0 ? (
-            <p style={{ color: 'var(--ink-secondary)' }}>Keine Buchungen.</p>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ ...cellPad, textAlign: 'left', paddingLeft: 0, color: 'var(--ink-muted)', fontWeight: 500 }}>Datum</th>
-                  <th style={{ ...cellPad, textAlign: 'left', color: 'var(--ink-muted)', fontWeight: 500 }}>Gegenpartei</th>
-                  <th style={{ ...cellPad, textAlign: 'left', color: 'var(--ink-muted)', fontWeight: 500 }}>Verwendungszweck</th>
-                  <th style={{ ...cellPad, textAlign: 'right', paddingRight: 0, color: 'var(--ink-muted)', fontWeight: 500 }}>Betrag</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((t, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ ...cellPad, paddingLeft: 0, color: 'var(--ink-secondary)', whiteSpace: 'nowrap' }}>
-                      {formatDe(t.bookingDate)}
-                    </td>
-                    <td style={{ ...cellPad, color: 'var(--ink-primary)' }}>{t.counterpartyName ?? '–'}</td>
-                    <td style={{ ...cellPad, color: 'var(--ink-secondary)' }}>{t.purpose}</td>
-                    <td style={{ ...cellPad, paddingRight: 0, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-primary)' }}>
-                      {eur(t.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+          <div className="panel categories-panel" style={{ opacity: summaryLoading ? 0.5 : 1, transition: 'opacity 0.15s ease-out' }}>
+            <h2 className="panel-title">Kategorien</h2>
+
+            {incomeRows.length > 0 && (
+              <div className="cat-group">
+                <div className="cat-group-label">
+                  <span>Einnahmen</span>
+                  <span>{eur(totalIncomeAbs)}</span>
+                </div>
+                <div className="cat-list">{incomeRows.map(d => renderCatRow(d, totalIncomeAbs))}</div>
+              </div>
+            )}
+
+            {expenseRows.length > 0 && (
+              <div className="cat-group">
+                <div className="cat-group-label">
+                  <span>Ausgaben</span>
+                  <span>{eur(-totalExpenseAbs)}</span>
+                </div>
+                <div className="cat-list">{expenseRows.map(d => renderCatRow(d, totalExpenseAbs))}</div>
+              </div>
+            )}
+          </div>
+
+          <div className="panel buchungen-panel">
+            <div className="buchungen-header">
+              <h2 className="panel-title" style={{ margin: 0 }}>Buchungen</h2>
+              {selectedCategory ? (
+                <button type="button" className="filter-chip" onClick={() => setSelectedCategory(null)}>
+                  <span className="cat-dot" style={{ background: CATEGORY_COLORS[selectedCategory] ?? FALLBACK_COLOR }} />
+                  {selectedCategory}
+                  <IconClose />
+                </button>
+              ) : (
+                <span className="panel-subtitle">Letzte Buchungen im Zeitraum</span>
+              )}
+            </div>
+
+            {transactionsLoading ? (
+              <p className="muted-text">Lädt...</p>
+            ) : transactions.length === 0 ? (
+              <p className="muted-text">Keine Buchungen.</p>
+            ) : (
+              <div className="tx-table-wrap">
+                <table>
+                  <colgroup>
+                    <col style={{ width: '80px' }} />
+                    <col style={{ width: '25%' }} />
+                    <col />
+                    <col style={{ width: '112px' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Datum</th>
+                      <th>Gegenpartei</th>
+                      <th>Verwendungszweck</th>
+                      <th style={{ textAlign: 'right' }}>Betrag</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((t, i) => (
+                      <tr key={i}>
+                        <td style={{ color: 'var(--ink-secondary)', whiteSpace: 'nowrap' }}>
+                          {formatDe(t.bookingDate)}
+                        </td>
+                        <td className="tx-counterparty" style={{ color: 'var(--ink-primary)' }} title={t.counterpartyName ?? undefined}>
+                          {t.counterpartyName ?? '–'}
+                        </td>
+                        <td className="tx-purpose" title={t.purpose}>{t.purpose}</td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-primary)', whiteSpace: 'nowrap' }}>
+                          {eur(t.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   )

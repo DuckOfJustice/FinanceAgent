@@ -2,9 +2,26 @@ import MonthlyDashboard from './MonthlyDashboard'
 
 export default function App() {
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem' }}>FinanceAgent</h1>
-      <MonthlyDashboard />
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="app-header-inner">
+          <div className="app-brand">
+            <span className="app-logo-badge" aria-hidden="true">💶🦆</span>
+            <div>
+              <div className="app-name">FinanceDuck</div>
+              <div className="app-tagline">Finanzen mit Quak-Faktor</div>
+            </div>
+          </div>
+
+          <nav className="app-nav" aria-label="Bereich">
+            <span className="app-nav-item is-active">Übersicht</span>
+          </nav>
+        </div>
+      </header>
+
+      <main className="app-main">
+        <MonthlyDashboard />
+      </main>
     </div>
   )
 }
