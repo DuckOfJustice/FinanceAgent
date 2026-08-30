@@ -1,23 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { categoryColor } from './categoryColor'
 
 type CategorySummary = { category: string; totalAmount: number }
 type Transaction = { bookingDate: string; amount: number; counterpartyName: string | null; purpose: string }
-
-// Feste Zuordnung statt zyklischer Farben - bleibt ueber Monate stabil erkennbar.
-// "Sonstiges" bekommt bewusst Grau statt einer 9. generierten Farbe (Palette hat nur 8 Slots).
-const CATEGORY_COLORS: Record<string, string> = {
-  Lebensmittel: 'var(--cat-lebensmittel)',
-  Miete: 'var(--cat-miete)',
-  Transport: 'var(--cat-transport)',
-  Gehalt: 'var(--cat-gehalt)',
-  Abo: 'var(--cat-abo)',
-  Sonstiges: 'var(--cat-sonstiges)',
-  Diva: 'var(--cat-diva)',
-  Partnerkarten: 'var(--cat-partnerkarten)',
-  'Strom und Gas': 'var(--cat-stromgas)',
-  'Verträge': 'var(--cat-vertraege)',
-}
-const FALLBACK_COLOR = 'var(--cat-sonstiges)'
 
 const iconProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -70,7 +55,7 @@ function monthOptions() {
   })
 }
 
-export default function MonthlyDashboard() {
+export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: number }) {
   const months = useMemo(monthOptions, [])
   const [selectedMonth, setSelectedMonth] = useState(months[0].value)
   const [from, setFrom] = useState(months[0].from)
@@ -125,6 +110,17 @@ export default function MonthlyDashboard() {
     setSelectedCategory(null)
     loadSummary()
   }, [from, to])
+
+  // Kategorien/Regeln werden jetzt oben in der Navbar verwaltet (App.tsx) - nach dem
+  // Schliessen von "Kategorien verwalten" hier neu laden, falls sich Namen geaendert haben.
+  const isFirstRefreshToken = useRef(true)
+  useEffect(() => {
+    if (isFirstRefreshToken.current) {
+      isFirstRefreshToken.current = false
+      return
+    }
+    loadSummary()
+  }, [refreshToken])
 
   // Ohne ausgewaehlte Kategorie: juengste Buchungen im Zeitraum, damit die Liste beim
   // initialen Laden nicht leer ist. Mit Kategorie: wie bisher der volle Drilldown.
@@ -193,7 +189,7 @@ export default function MonthlyDashboard() {
   const renderCatRow = (d: typeof chartData[number], groupTotal: number) => {
     const pct = groupTotal > 0 ? (d.absAmount / groupTotal) * 100 : 0
     const barPct = groupTotal > 0 ? Math.max(pct, 2) : 0
-    const color = CATEGORY_COLORS[d.category] ?? FALLBACK_COLOR
+    const color = categoryColor(d.category)
     const isSelected = selectedCategory === d.category
     const dimmed = selectedCategory !== null && !isSelected
     return (
@@ -267,7 +263,7 @@ export default function MonthlyDashboard() {
             {refreshLoading ? 'Lädt...' : 'Umsätze abrufen'}
           </button>
 
-          <button onClick={recategorize} disabled={recategorizeLoading} title="Ordnet bereits gespeicherte Buchungen anhand der aktuellen Regeln/des Modells neu zu">
+          <button onClick={recategorize} disabled={recategorizeLoading} title="Ordnet bereits gespeicherte Buchungen anhand der aktuellen Regeln neu zu">
             <IconSparkles />
             {recategorizeLoading ? 'Ordne neu zu...' : 'Neu kategorisieren'}
           </button>
@@ -355,7 +351,7 @@ export default function MonthlyDashboard() {
               <h2 className="panel-title" style={{ margin: 0 }}>Buchungen</h2>
               {selectedCategory ? (
                 <button type="button" className="filter-chip" onClick={() => setSelectedCategory(null)}>
-                  <span className="cat-dot" style={{ background: CATEGORY_COLORS[selectedCategory] ?? FALLBACK_COLOR }} />
+                  <span className="cat-dot" style={{ background: categoryColor(selectedCategory) }} />
                   {selectedCategory}
                   <IconClose />
                 </button>

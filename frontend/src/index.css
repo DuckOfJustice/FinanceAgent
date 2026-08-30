@@ -8,6 +8,7 @@
   --border: rgba(11, 11, 11, 0.10);
   --font-sans: 'Inter', system-ui, -apple-system, "Segoe UI", sans-serif;
   --shadow-card: 0 1px 2px rgba(16, 24, 32, 0.04), 0 4px 12px rgba(16, 24, 32, 0.05);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 
   --cat-lebensmittel: #2a78d6;
   --cat-miete: #eb6834;
@@ -98,6 +99,11 @@ body {
   font-family: var(--font-sans);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Natives <dialog> sperrt den Hintergrund nicht automatisch gegen Scrollen. */
+body:has(dialog[open]) {
+  overflow: hidden;
 }
 
 button {
@@ -489,17 +495,20 @@ button:focus-visible,
   gap: 0.4rem;
 }
 
-.app-nav-item {
+.app-nav-action {
   font-size: 12.5px;
   font-weight: 600;
   padding: 0.4rem 0.85rem;
   border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--ink-muted);
 }
 
-.app-nav-item.is-active {
-  color: var(--ink-primary);
+.app-nav-action:hover:not(:disabled) {
   background: var(--surface-page);
+  border-color: transparent;
+  color: var(--ink-primary);
 }
 
 .app-main {
@@ -596,6 +605,253 @@ button:focus-visible,
   }
 }
 
+/* Kategorien verwalten: natives <dialog> statt eigenem Fokus-Trap/Escape-Handling -
+   showModal()/close() bringt beides gratis mit. */
+.category-modal {
+  padding: 0;
+  border: none;
+  border-radius: 16px;
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card), 0 24px 48px -12px rgba(0, 0, 0, 0.28);
+  width: min(440px, calc(100vw - 2rem));
+  max-height: min(600px, calc(100vh - 4rem));
+  overflow: hidden;
+  color: var(--ink-primary);
+  opacity: 0;
+  transform: scale(0.96) translateY(4px);
+  transition: opacity 0.18s var(--ease-out-quart), transform 0.18s var(--ease-out-quart),
+    overlay 0.18s allow-discrete, display 0.18s allow-discrete;
+}
+
+.category-modal[open] {
+  display: flex;
+  flex-direction: column;
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+@starting-style {
+  .category-modal[open] {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+
+.category-modal::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.18s var(--ease-out-quart), overlay 0.18s allow-discrete, display 0.18s allow-discrete;
+}
+
+.category-modal[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  .category-modal[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+.category-modal-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 1.25rem 1.25rem 1.1rem;
+  gap: 0.9rem;
+  overflow: hidden;
+}
+
+.category-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* Regeln verwalten hat deutlich mehr Zeilen (Muster + Kategorie je Regel) als die
+   Kategorienliste - braucht mehr Platz, um nicht staendig scrollen zu muessen. */
+.rule-modal {
+  width: min(600px, calc(100vw - 2rem));
+  max-height: min(720px, calc(100vh - 3rem));
+}
+
+.icon-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-secondary);
+  flex-shrink: 0;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink-primary) 7%, transparent);
+  color: var(--ink-primary);
+}
+
+.icon-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.icon-button-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-critical) 14%, transparent);
+  color: var(--status-critical);
+}
+
+.category-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.category-row {
+  padding: 0.3rem 0.35rem;
+  border-radius: 8px;
+}
+
+.category-row:has(.category-row-main:hover) {
+  background: color-mix(in srgb, var(--ink-primary) 4%, transparent);
+}
+
+.category-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 30px;
+}
+
+.category-name {
+  flex: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-row-actions {
+  display: flex;
+  gap: 0.15rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.rule-category-badge {
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.category-edit-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--ink-primary);
+}
+
+.category-edit-input:focus-visible {
+  outline: 2px solid var(--chart-balance);
+  outline-offset: 1px;
+}
+
+.category-row-error {
+  margin: 0.25rem 0 0 1.4rem;
+  font-size: 12px;
+  color: var(--status-critical);
+}
+
+.category-row-skeleton {
+  pointer-events: none;
+}
+
+.skeleton-dot,
+.skeleton-text {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-primary) 8%, transparent);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+.skeleton-text {
+  height: 12px;
+  width: 60%;
+  border-radius: 4px;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+}
+
+.category-add {
+  flex-shrink: 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.category-add-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.category-add-row input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--ink-primary);
+}
+
+.category-add-row input:focus-visible {
+  outline: 2px solid var(--chart-balance);
+  outline-offset: 1px;
+}
+
+.category-add-row select,
+.category-add-row button {
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .category-modal,
+  .category-modal::backdrop {
+    transition-duration: 0.01ms;
+  }
+
+  .skeleton-dot,
+  .skeleton-text {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 @media (max-width: 560px) {
   .kpi-grid {
     grid-template-columns: 1fr;
@@ -603,8 +859,11 @@ button:focus-visible,
   .app-tagline {
     display: none;
   }
-  .app-nav-item {
+  .app-nav-action span {
     display: none;
+  }
+  .app-nav-action {
+    padding: 0.4rem;
   }
   .field-compact input {
     width: 118px;

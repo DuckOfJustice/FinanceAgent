@@ -1,16 +1,7 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_models:/root/.ollama
-    networks: [finance-net]
-    # kein "ports:" - nur das Backend darf ihn erreichen
-
   backend:
     build: ./backend
     env_file: .env
-    environment:
-      - Ollama__BaseUrl=http://ollama:11434/
     ports:
       # nur fuer lokale Frontend-Entwicklung (npm run dev / vite proxy) direkt erreichbar,
       # im normalen Betrieb laeuft alles ueber die nginx-Proxy-Route des frontend-Containers.
@@ -19,7 +10,6 @@ services:
       - backend_data:/app/data
       - ./backend/keys:/app/keys:ro
       - ./backend/category-rules.json:/app/category-rules.json:ro
-    depends_on: [ollama]
     networks: [finance-net]
 
   frontend:
@@ -36,5 +26,4 @@ networks:
   finance-net:
 
 volumes:
-  ollama_models:
   backend_data:
