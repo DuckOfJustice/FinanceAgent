@@ -1,6 +1,6 @@
-# Datenschutzerklärung – FinanceAgent
+# Datenschutzerklärung – FinanceDuck
 
-FinanceAgent ist ein privates Ein-Personen-Tool zur lokalen Kategorisierung
+FinanceDuck ist ein privates Ein-Personen-Tool zur lokalen Kategorisierung
 und Auswertung der eigenen Bankumsätze. Es wird nicht öffentlich betrieben
 und verarbeitet ausschließlich die Kontodaten des Betreibers selbst.
 

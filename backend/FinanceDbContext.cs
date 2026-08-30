@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace FinanceAgent.Api;
+namespace FinanceDuck.Api;
 
 public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbContext(options)
 {

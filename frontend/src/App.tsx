@@ -5,11 +5,17 @@ export default function App() {
     <div className="app-shell">
       <header className="app-header">
         <div className="app-header-inner">
-          <span className="app-logo" aria-hidden="true">💶</span>
-          <div>
-            <div className="app-name">FinanceAgent</div>
-            <div className="app-tagline">Persönliches Finanz-Dashboard</div>
+          <div className="app-brand">
+            <span className="app-logo-badge" aria-hidden="true">💶🦆</span>
+            <div>
+              <div className="app-name">FinanceDuck</div>
+              <div className="app-tagline">Finanzen mit Quak-Faktor</div>
+            </div>
           </div>
+
+          <nav className="app-nav" aria-label="Bereich">
+            <span className="app-nav-item is-active">Übersicht</span>
+          </nav>
         </div>
       </header>
 

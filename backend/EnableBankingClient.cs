@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace FinanceAgent.Api;
+namespace FinanceDuck.Api;
 
 public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
 {
@@ -21,7 +21,7 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
             state = Guid.NewGuid().ToString("N"),
             psu_type = "personal"
         });
-        res.EnsureSuccessStatusCode();
+        await EnsureOkAsync(res);
         var body = await res.Content.ReadFromJsonAsync<AuthStartResponse>();
         return body!.Url;
     }
@@ -31,7 +31,7 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
     {
         AuthenticateRequest();
         var res = await http.PostAsJsonAsync("sessions", new { code });
-        res.EnsureSuccessStatusCode();
+        await EnsureOkAsync(res);
         // ponytail: POST /sessions liefert "accounts" verschachtelt, GET /sessions/{id} liefert
         // "accounts" als reine UID-Strings - hier interessiert uns nur session_id, den Rest ignorieren
         // wir bewusst statt ein drittes DTO fuer das Erstellungs-Schema zu pflegen.
@@ -51,7 +51,9 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
     public async Task<List<BankTransaction>> GetTransactionsAsync(string sessionId, string targetIban, DateOnly from, DateOnly to)
     {
         AuthenticateRequest();
-        var session = await http.GetFromJsonAsync<SessionResponse>($"sessions/{sessionId}");
+        var sessionRes = await http.GetAsync($"sessions/{sessionId}");
+        await EnsureOkAsync(sessionRes);
+        var session = await sessionRes.Content.ReadFromJsonAsync<SessionResponse>();
         var accountId = await FindAccountByIbanAsync(session!.Accounts, targetIban);
 
         AuthenticateRequest();

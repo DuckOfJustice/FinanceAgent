@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
-namespace FinanceAgent.Api;
+namespace FinanceDuck.Api;
 
 public sealed class CategorizationService(HttpClient ollama, IConfiguration cfg)
 {

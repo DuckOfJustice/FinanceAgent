@@ -1,6 +1,6 @@
-# Nutzungsbedingungen – FinanceAgent
+# Nutzungsbedingungen – FinanceDuck
 
-FinanceAgent ist ein privates Ein-Personen-Tool zur lokalen Kategorisierung
+FinanceDuck ist ein privates Ein-Personen-Tool zur lokalen Kategorisierung
 und Auswertung der eigenen Bankumsätze. Es wird nicht als kommerzieller
 Dienst betrieben und richtet sich ausschließlich an den Betreiber selbst.
 
