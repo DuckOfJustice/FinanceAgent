@@ -10,7 +10,12 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<StoredTransaction>().HasIndex(t => t.ExternalId).IsUnique();
+        // Nicht eindeutig (siehe Migration in Program.cs): manche Zahlungsdienstleister
+        // vergeben dieselbe ExternalId (AcctSvcrRef/EndToEndId) fuer mehrere echte Buchungen
+        // wieder (z.B. wiederkehrende Lohn-/Gehaltslaeufe) - die eigentliche Duplikat-Erkennung
+        // laeuft in ImportTransactionsAsync ueber ExternalId+Datum+Betrag bzw. Inhalt, nicht ueber
+        // eine DB-Constraint. Index bleibt fuer die Lookup-Performance dort erhalten.
+        modelBuilder.Entity<StoredTransaction>().HasIndex(t => t.ExternalId);
         modelBuilder.Entity<Category>().HasIndex(c => c.Name).IsUnique();
     }
 }
@@ -19,6 +24,10 @@ public sealed class Category
 {
     public int Id { get; set; }
     public required string Name { get; set; }
+    // Slot-Key aus der Frontend-Farbpalette (z.B. "miete"), keine CSS-Var/Hexfarbe -
+    // Server validiert nur gegen CategoryColors.Palette. Null = alte Kategorie, Frontend
+    // faellt dann auf den bisherigen Hash-basierten Fallback zurueck.
+    public string? Color { get; set; }
 }
 
 // Kein EF-Fremdschluessel auf Category - Loeschen einer Kategorie raeumt zugehoerige

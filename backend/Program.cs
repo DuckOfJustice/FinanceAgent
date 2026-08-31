@@ -42,6 +42,17 @@ using (var scope = app.Services.CreateScope())
     // Installationen (DB existierte schon vor der Categories-Tabelle) bekommen die neue
     // Tabelle sonst nie. Keine echten EF-Migrations fuer dieses Ein-Personen-Tool, daher hier
     // idempotent per Raw-SQL nachziehen statt eine ganze Migrations-Pipeline aufzusetzen.
+
+    // Bestehende Datenbanken haben ExternalId noch als Unique-Index angelegt (aus einer Zeit,
+    // bevor klar war, dass manche Zahlungsdienstleister dieselbe Referenz fuer mehrere echte
+    // Buchungen wiederverwenden, z.B. wiederkehrende Lohn-/Gehaltslaeufe). Ohne diesen Drop
+    // wirft der CAMT.053-Import fuer solche Faelle weiterhin eine SQLite-Constraint-Verletzung,
+    // obwohl die eigentliche Duplikat-Pruefung in ImportTransactionsAsync das korrekt erkennt.
+    // Fuer eine komplett neue DB legt EnsureCreated() den Index bereits nicht-eindeutig an
+    // (siehe FinanceDbContext.OnModelCreating), das Drop+Recreate hier ist dafuer ein No-op.
+    db.Database.ExecuteSqlRaw("""DROP INDEX IF EXISTS "IX_Transactions_ExternalId" """);
+    db.Database.ExecuteSqlRaw("""CREATE INDEX IF NOT EXISTS "IX_Transactions_ExternalId" ON "Transactions" ("ExternalId")""");
+
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS "Categories" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_Categories" PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +67,17 @@ using (var scope = app.Services.CreateScope())
             "CategoryId" INTEGER NOT NULL
         )
         """);
+
+    // Farbspalte fuer bestehende DBs nachziehen - SQLite kennt kein "ADD COLUMN IF NOT EXISTS",
+    // daher hier auf die "Spalte gibt es schon"-Fehlermeldung pruefen statt vorher extra abzufragen.
+    try
+    {
+        db.Database.ExecuteSqlRaw("""ALTER TABLE "Categories" ADD COLUMN "Color" TEXT""");
+    }
+    catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("duplicate column name"))
+    {
+        // Spalte existiert schon (DB aus einer frueheren App-Version) - nichts zu tun.
+    }
 
     // Einmalige Erstbefuellung - vormals die feste Kategorienliste in CategorizationService.
     if (!db.Categories.Any())
@@ -179,13 +201,22 @@ async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<Ba
     var skipped = new List<object>();
     foreach (var tx in transactions)
     {
-        // ExternalId allein reicht nicht: EnableBanking (/api/refresh) und ein CAMT.053-Import
-        // vergeben fuer dieselbe reale Buchung unterschiedliche Referenzen (API-eigene
-        // Transaktions-ID vs. AcctSvcrRef der Bank). Bei ueberlappenden Zeitraeumen aus beiden
-        // Quellen faellt hier daher zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck - dabei
-        // wird der Match-Grund mitgeloggt, um einen echten Doppel-Eintrag vom seltenen Fall zweier
-        // wirklich verschiedener Buchungen mit zufaellig identischem Datum/Betrag/Zweck zu unterscheiden.
-        var existingById = await db.Transactions.FirstOrDefaultAsync(t => t.ExternalId == tx.ExternalId);
+        // ExternalId allein reicht nicht - in beide Richtungen:
+        // 1) EnableBanking (/api/refresh) und ein CAMT.053-Import vergeben fuer dieselbe reale
+        //    Buchung unterschiedliche Referenzen (API-eigene Transaktions-ID vs. AcctSvcrRef der
+        //    Bank). Bei ueberlappenden Zeitraeumen aus beiden Quellen faellt hier daher
+        //    zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck.
+        // 2) Manche Zahlungsdienstleister vergeben dieselbe Referenz mehrfach fuer echt
+        //    verschiedene Buchungen - z.B. Lohn/Gehalt-Ueberweisungen, bei denen AcctSvcrRef/
+        //    EndToEndId eine feste Kunden-/Zahlungslaufnummer statt einer pro Buchung eindeutigen
+        //    ID ist. Deshalb muessen bei einem ExternalId-Treffer Datum UND Betrag ebenfalls
+        //    uebereinstimmen, sonst ist es trotz gleicher Referenz offensichtlich eine andere
+        //    Buchung und faellt weiter unten in die Inhalts-Pruefung durch.
+        // In beiden Faellen wird der Match-Grund mitgeloggt, um einen echten Doppel-Eintrag vom
+        // seltenen Fall zweier wirklich verschiedener Buchungen mit zufaellig identischem
+        // Datum/Betrag/Zweck zu unterscheiden.
+        var existingById = await db.Transactions.FirstOrDefaultAsync(t =>
+            t.ExternalId == tx.ExternalId && t.BookingDate == tx.BookingDate && t.Amount == tx.Amount);
         if (existingById is not null)
         {
             skipped.Add(new
@@ -257,6 +288,18 @@ async Task ImportDedupSelfTestAsync()
     var (imported3, skipped3) = await ImportTransactionsAsync([distinctTx], testCategorizer, testDb);
     SelfTestAssert(imported3 == 1 && skipped3.Count == 0, $"echte andere Buchung: erwartet 1/0, war {imported3}/{skipped3.Count}");
 
+    // Regression: manche Zahlungsdienstleister (z.B. Lohn/Gehalt-Laeufe) vergeben dieselbe
+    // AcctSvcrRef/EndToEndId fuer jede Ueberweisung wieder - hier zwei Gehaltszahlungen an
+    // verschiedenen Tagen (identischer Betrag, wie im real gemeldeten Fall) mit identischer
+    // ExternalId. Beide muessen importiert werden, keine darf faelschlich als Duplikat gelten.
+    var gehaltSep = new BankTransaction("00560023", new DateOnly(2025, 9, 16), 2170.17m, "DT Privatkunden GmbH", "Lohn/Gehalt 00560023/202509");
+    var (imported4, skipped4) = await ImportTransactionsAsync([gehaltSep], testCategorizer, testDb);
+    SelfTestAssert(imported4 == 1 && skipped4.Count == 0, $"erste Gehaltszahlung: erwartet 1/0, war {imported4}/{skipped4.Count}");
+
+    var gehaltOkt = new BankTransaction("00560023", new DateOnly(2025, 10, 16), 2170.17m, "DT Privatkunden GmbH", "Lohn/Gehalt 00560023/202510");
+    var (imported5, skipped5) = await ImportTransactionsAsync([gehaltOkt], testCategorizer, testDb);
+    SelfTestAssert(imported5 == 1 && skipped5.Count == 0, $"zweite Gehaltszahlung trotz gleicher Referenz: erwartet 1/0, war {imported5}/{skipped5.Count}");
+
     Console.WriteLine("Import-Dedup self-test: OK");
 }
 
@@ -286,7 +329,7 @@ app.MapPost("/api/recategorize", async (CategorizationService categorizer, Finan
 });
 
 app.MapGet("/api/categories", async (FinanceDbContext db) =>
-    Results.Ok(await db.Categories.OrderBy(c => c.Name).Select(c => new { c.Id, c.Name }).ToListAsync()));
+    Results.Ok(await db.Categories.OrderBy(c => c.Name).Select(c => new { c.Id, c.Name, c.Color }).ToListAsync()));
 
 app.MapPost("/api/categories", async (CategoryRequest body, FinanceDbContext db) =>
 {
@@ -294,10 +337,21 @@ app.MapPost("/api/categories", async (CategoryRequest body, FinanceDbContext db)
     if (string.IsNullOrEmpty(name)) return Results.BadRequest("Name darf nicht leer sein.");
     if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
 
-    var category = new Category { Name = name };
+    var color = body.Color?.Trim();
+    if (!string.IsNullOrEmpty(color))
+    {
+        if (!CategoryColors.Palette.Contains(color)) return Results.BadRequest("Ungueltige Farbe.");
+    }
+    else
+    {
+        // Keine Farbe mitgegeben - automatisch eine nehmen, die noch keine andere Kategorie nutzt.
+        color = CategoryColors.PickUnused(await db.Categories.Select(c => c.Color).ToListAsync());
+    }
+
+    var category = new Category { Name = name, Color = color };
     db.Categories.Add(category);
     await db.SaveChangesAsync();
-    return Results.Ok(new { category.Id, category.Name });
+    return Results.Ok(new { category.Id, category.Name, category.Color });
 });
 
 app.MapPut("/api/categories/{id:int}", async (int id, CategoryRequest body, FinanceDbContext db) =>
@@ -307,17 +361,31 @@ app.MapPut("/api/categories/{id:int}", async (int id, CategoryRequest body, Fina
 
     var category = await db.Categories.FindAsync(id);
     if (category is null) return Results.NotFound();
-    if (category.Name == name) return Results.Ok(new { category.Id, category.Name });
-    if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
 
-    var oldName = category.Name;
-    category.Name = name;
-    // StoredTransaction.Category ist ein reiner String (kein Fremdschluessel) - beim Umbenennen
-    // muessen bereits gespeicherte Buchungen mitgezogen werden, sonst verwaisen sie unter dem alten Namen.
-    await db.Transactions.Where(t => t.Category == oldName)
-        .ExecuteUpdateAsync(s => s.SetProperty(t => t.Category, name));
+    if (category.Name != name)
+    {
+        if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
+
+        var oldName = category.Name;
+        category.Name = name;
+        // StoredTransaction.Category ist ein reiner String (kein Fremdschluessel) - beim Umbenennen
+        // muessen bereits gespeicherte Buchungen mitgezogen werden, sonst verwaisen sie unter dem alten Namen.
+        await db.Transactions.Where(t => t.Category == oldName)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Category, name));
+    }
+
+    // Farbe ist optional im Request - nur mitgeschickt, wenn im Bearbeiten-Dialog ein Swatch
+    // gewaehlt wurde. Leerer String setzt bewusst auf "keine Farbe" (Hash-Fallback) zurueck.
+    if (body.Color is not null)
+    {
+        var color = body.Color.Trim();
+        if (!string.IsNullOrEmpty(color) && !CategoryColors.Palette.Contains(color))
+            return Results.BadRequest("Ungueltige Farbe.");
+        category.Color = string.IsNullOrEmpty(color) ? null : color;
+    }
+
     await db.SaveChangesAsync();
-    return Results.Ok(new { category.Id, category.Name });
+    return Results.Ok(new { category.Id, category.Name, category.Color });
 });
 
 app.MapDelete("/api/categories/{id:int}", async (int id, FinanceDbContext db) =>
@@ -440,37 +508,33 @@ app.MapPut("/api/transactions/{id:int}/category", async (int id, CategoryAssignR
     return Results.Ok(new { tx.Id, tx.Category });
 });
 
-// Monatsverlauf (Einnahmen/Ausgaben/Saldo) fuer den Trend-Chart im Dashboard. Endmonat per
-// Query steuerbar (Default: aktueller Monat), sonst wie /api/summary nach dem Laden aggregiert.
-app.MapGet("/api/history", async (DateOnly? end, int? months, FinanceDbContext db) =>
-{
-    var endDate = end ?? DateOnly.FromDateTime(DateTime.Today);
-    var monthCount = months is > 0 and <= 24 ? months.Value : 6;
-
-    var endMonthStart = new DateOnly(endDate.Year, endDate.Month, 1);
-    var startMonth = endMonthStart.AddMonths(-(monthCount - 1));
-    var rangeEnd = endMonthStart.AddMonths(1).AddDays(-1);
-
-    var rangeTransactions = await db.Transactions
-        .Where(t => t.BookingDate >= startMonth && t.BookingDate <= rangeEnd)
-        .ToListAsync();
-
-    var result = Enumerable.Range(0, monthCount)
-        .Select(i => startMonth.AddMonths(i))
-        .Select(m =>
-        {
-            var monthTx = rangeTransactions.Where(t => t.BookingDate.Year == m.Year && t.BookingDate.Month == m.Month).ToList();
-            var income = monthTx.Where(t => t.Amount > 0).Sum(t => t.Amount);
-            var expenses = monthTx.Where(t => t.Amount < 0).Sum(t => t.Amount);
-            return new { month = $"{m.Year}-{m.Month:D2}", income, expenses, balance = income + expenses };
-        })
-        .ToList();
-
-    return Results.Ok(result);
-});
-
 app.Run();
 
-record CategoryRequest(string? Name);
+record CategoryRequest(string? Name, string? Color = null);
+
+// Feste Farbpalette (Slot-Keys, keine Hex-Werte - die CSS-Variablen dazu leben in index.css /
+// categoryColor.ts). Server validiert nur gegen diese Liste, damit keine beliebigen Strings ins UI durchsickern.
+static class CategoryColors
+{
+    public static readonly string[] Palette =
+        ["lebensmittel", "miete", "freizeit", "transport", "versicherung", "gehalt", "abo", "gesundheit",
+         "diva", "partnerkarten", "stromgas", "vertraege"];
+
+    public static string PickUnused(IEnumerable<string?> usedColors)
+    {
+        var used = new HashSet<string>(usedColors.Where(c => !string.IsNullOrEmpty(c))!);
+        var free = Palette.FirstOrDefault(p => !used.Contains(p));
+        if (free is not null) return free;
+
+        // Alle Farben sind schon mindestens einmal vergeben - die am seltensten genutzte
+        // nehmen statt einen Fehler zu werfen.
+        return usedColors
+            .Where(c => !string.IsNullOrEmpty(c))
+            .GroupBy(c => c!)
+            .OrderBy(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault() ?? Palette[0];
+    }
+}
 record RuleRequest(string? Pattern, int CategoryId);
 record CategoryAssignRequest(string? Category);
