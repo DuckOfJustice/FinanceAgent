@@ -221,13 +221,21 @@ app.MapPost("/api/rules", async (RuleRequest body, FinanceDbContext db) =>
 {
     var pattern = body.Pattern?.Trim();
     if (string.IsNullOrEmpty(pattern)) return Results.BadRequest("Muster darf nicht leer sein.");
-    if (await db.Rules.AnyAsync(r => r.Pattern == pattern)) return Results.Conflict("Muster existiert bereits.");
 
     var category = await db.Categories.FindAsync(body.CategoryId);
     if (category is null) return Results.BadRequest("Unbekannte Kategorie.");
 
-    var rule = new Rule { Pattern = pattern, CategoryId = category.Id };
-    db.Rules.Add(rule);
+    // Muster existiert schon in einer anderen Kategorie -> Regel umhaengen statt Fehler.
+    var rule = await db.Rules.FirstOrDefaultAsync(r => r.Pattern == pattern);
+    if (rule is null)
+    {
+        rule = new Rule { Pattern = pattern, CategoryId = category.Id };
+        db.Rules.Add(rule);
+    }
+    else
+    {
+        rule.CategoryId = category.Id;
+    }
     await db.SaveChangesAsync();
     return Results.Ok(new { rule.Id, rule.Pattern, CategoryId = category.Id, CategoryName = category.Name });
 });
