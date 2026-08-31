@@ -42,6 +42,17 @@ using (var scope = app.Services.CreateScope())
     // Installationen (DB existierte schon vor der Categories-Tabelle) bekommen die neue
     // Tabelle sonst nie. Keine echten EF-Migrations fuer dieses Ein-Personen-Tool, daher hier
     // idempotent per Raw-SQL nachziehen statt eine ganze Migrations-Pipeline aufzusetzen.
+
+    // Bestehende Datenbanken haben ExternalId noch als Unique-Index angelegt (aus einer Zeit,
+    // bevor klar war, dass manche Zahlungsdienstleister dieselbe Referenz fuer mehrere echte
+    // Buchungen wiederverwenden, z.B. wiederkehrende Lohn-/Gehaltslaeufe). Ohne diesen Drop
+    // wirft der CAMT.053-Import fuer solche Faelle weiterhin eine SQLite-Constraint-Verletzung,
+    // obwohl die eigentliche Duplikat-Pruefung in ImportTransactionsAsync das korrekt erkennt.
+    // Fuer eine komplett neue DB legt EnsureCreated() den Index bereits nicht-eindeutig an
+    // (siehe FinanceDbContext.OnModelCreating), das Drop+Recreate hier ist dafuer ein No-op.
+    db.Database.ExecuteSqlRaw("""DROP INDEX IF EXISTS "IX_Transactions_ExternalId" """);
+    db.Database.ExecuteSqlRaw("""CREATE INDEX IF NOT EXISTS "IX_Transactions_ExternalId" ON "Transactions" ("ExternalId")""");
+
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS "Categories" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_Categories" PRIMARY KEY AUTOINCREMENT,

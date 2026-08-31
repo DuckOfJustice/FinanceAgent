@@ -10,7 +10,12 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<StoredTransaction>().HasIndex(t => t.ExternalId).IsUnique();
+        // Nicht eindeutig (siehe Migration in Program.cs): manche Zahlungsdienstleister
+        // vergeben dieselbe ExternalId (AcctSvcrRef/EndToEndId) fuer mehrere echte Buchungen
+        // wieder (z.B. wiederkehrende Lohn-/Gehaltslaeufe) - die eigentliche Duplikat-Erkennung
+        // laeuft in ImportTransactionsAsync ueber ExternalId+Datum+Betrag bzw. Inhalt, nicht ueber
+        // eine DB-Constraint. Index bleibt fuer die Lookup-Performance dort erhalten.
+        modelBuilder.Entity<StoredTransaction>().HasIndex(t => t.ExternalId);
         modelBuilder.Entity<Category>().HasIndex(c => c.Name).IsUnique();
     }
 }
