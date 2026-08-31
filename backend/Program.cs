@@ -385,6 +385,16 @@ app.MapGet("/api/transactions", async (DateOnly from, DateOnly to, string? categ
     return Results.Ok(transactions);
 });
 
+// Alle Buchungen im gewaehlten Zeitraum loeschen (z.B. um einen fehlerhaften Import wieder
+// rueckgaengig zu machen) - unabhaengig von einem evtl. gesetzten Kategorie-Filter im Dashboard.
+app.MapDelete("/api/transactions", async (DateOnly from, DateOnly to, FinanceDbContext db) =>
+{
+    var deleted = await db.Transactions
+        .Where(t => t.BookingDate >= from && t.BookingDate <= to)
+        .ExecuteDeleteAsync();
+    return Results.Ok(new { deleted });
+});
+
 // Einzelne Buchung manuell umkategorisieren (z.B. Dropdown in der Buchungsliste im Dashboard) -
 // unabhaengig von Regeln/Neu-kategorisieren, greift sofort nur fuer diese eine Buchung.
 app.MapPut("/api/transactions/{id:int}/category", async (int id, CategoryAssignRequest body, FinanceDbContext db) =>

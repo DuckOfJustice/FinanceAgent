@@ -31,6 +31,10 @@ const IconCalendar = () => (
   <svg {...iconProps} width={14} height={14}><rect x="3" y="4" width="18" height="18" rx="3" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
 )
 
+const IconTrash = () => (
+  <svg {...iconProps}><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14" /></svg>
+)
+
 const eur = (n: number) => `${n < 0 ? '-' : '+'}${Math.abs(n).toFixed(2)} €`
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const toIso = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -73,6 +77,9 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
 
   const [recategorizeLoading, setRecategorizeLoading] = useState(false)
   const [recategorizeMsg, setRecategorizeMsg] = useState<string | null>(null)
+
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteMsg, setDeleteMsg] = useState<string | null>(null)
 
   const [categories, setCategories] = useState<Category[]>([])
   const [updatingTxId, setUpdatingTxId] = useState<number | null>(null)
@@ -159,6 +166,23 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       loadSummary()
     }
     setRefreshLoading(false)
+  }
+
+  const deleteAll = async () => {
+    if (!window.confirm(`Alle Buchungen vom ${formatDe(from)} bis ${formatDe(to)} unwiderruflich loeschen?`)) return
+    setDeleteLoading(true)
+    setDeleteMsg(null)
+    const res = await fetch(`/api/transactions?from=${from}&to=${to}`, { method: 'DELETE' })
+    if (res.ok) {
+      const body = await res.json()
+      setDeleteMsg(`${body.deleted} Buchung(en) geloescht.`)
+      setSelectedCategory(null)
+      loadSummary()
+      loadTransactions()
+    } else {
+      setDeleteMsg(`Fehler beim Loeschen (${res.status}).`)
+    }
+    setDeleteLoading(false)
   }
 
   const recategorize = async () => {
@@ -320,11 +344,22 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
             <IconSparkles />
             {recategorizeLoading ? 'Ordne neu zu...' : 'Neu kategorisieren'}
           </button>
+
+          <button
+            onClick={deleteAll}
+            disabled={deleteLoading}
+            style={{ color: 'var(--status-critical)' }}
+            title="Loescht alle Buchungen im gewaehlten Zeitraum unwiderruflich"
+          >
+            <IconTrash />
+            {deleteLoading ? 'Loesche...' : 'Zeitraum loeschen'}
+          </button>
         </div>
       </div>
 
       {refreshError && <p className="status-text status-critical-text">{refreshError}</p>}
       {recategorizeMsg && <p className="status-text">{recategorizeMsg}</p>}
+      {deleteMsg && <p className="status-text">{deleteMsg}</p>}
       {ruleMsg && <p className="status-text">{ruleMsg}</p>}
 
       {data.length === 0 && !summaryLoading ? (
