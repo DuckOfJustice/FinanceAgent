@@ -40,7 +40,7 @@ export default function App() {
   const [importLoading, setImportLoading] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
 
-  const importCamt053 = async (files: FileList) => {
+  const importCamt053 = async (files: File[]) => {
     setImportLoading(true)
     setImportMessage(null)
     const body = new FormData()
@@ -91,9 +91,11 @@ export default function App() {
               multiple
               hidden
               onChange={e => {
-                const files = e.target.files
+                // Array.from() vor dem Zuruecksetzen: e.target.files ist eine live FileList,
+                // die beim Leeren von e.target.value mitgeleert wird - danach waere sie leer.
+                const files = Array.from(e.target.files ?? [])
                 e.target.value = ''
-                if (files && files.length > 0) importCamt053(files)
+                if (files.length > 0) importCamt053(files)
               }}
             />
           </nav>
