@@ -7,6 +7,11 @@ if (args is ["--selftest-camt053"])
     Camt053ParserSelfTest.Run();
     return;
 }
+if (args is ["--selftest-categorization"])
+{
+    CategorizationServiceSelfTest.Run();
+    return;
+}
 
 Directory.CreateDirectory("data");
 

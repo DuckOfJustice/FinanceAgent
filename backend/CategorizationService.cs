@@ -20,17 +20,23 @@ public sealed class CategorizationService(FinanceDbContext db)
     }
 
     // Feste Zuordnungen pruefen (z.B. "FitX" -> "Freizeit") - kein Treffer heisst "Sonstiges".
-    private string? TryGetConfiguredCategory(string? counterpartyName, string purpose, List<RuleMatch> rules)
+    internal static string? TryGetConfiguredCategory(string? counterpartyName, string purpose, List<RuleMatch> rules)
     {
         // PayPal steht als Gegenpartei immer gleich (generischer Zahlungsdienstleister) - nur der
         // Verwendungszweck verraet den eigentlichen Haendler, daher hier ohne counterpartyName suchen.
-        var haystack = counterpartyName?.Contains("PayPal", StringComparison.OrdinalIgnoreCase) == true
-            ? purpose
-            : $"{counterpartyName} {purpose}";
+        if (counterpartyName?.Contains("PayPal", StringComparison.OrdinalIgnoreCase) == true)
+            return BestMatch(purpose, rules);
 
-        // Bei mehreren treffenden Mustern gewinnt das laengste (spezifischste), damit z.B.
-        // "Telekom Deutschland GmbH" nicht vom generischen Muster "vertrag" ueberdeckt wird,
-        // nur weil "Vertragskonto" im Verwendungszweck zufaellig "vertrag" enthaelt.
+        // Gegenpartei ist der zuverlaessigere Hinweis (fester Firmenname) - erst dort suchen,
+        // Verwendungszweck (freier Text, oft generisch) nur als Fallback ohne Treffer dort.
+        return BestMatch(counterpartyName ?? "", rules) ?? BestMatch(purpose, rules);
+    }
+
+    // Bei mehreren treffenden Mustern gewinnt das laengste (spezifischste), damit z.B.
+    // "Telekom Deutschland GmbH" nicht vom generischen Muster "vertrag" ueberdeckt wird,
+    // nur weil "Vertragskonto" zufaellig "vertrag" enthaelt.
+    private static string? BestMatch(string haystack, List<RuleMatch> rules)
+    {
         string? bestCategory = null;
         var bestLength = -1;
         foreach (var rule in rules)
@@ -45,5 +51,44 @@ public sealed class CategorizationService(FinanceDbContext db)
         return bestCategory;
     }
 
-    private sealed record RuleMatch(string Pattern, string CategoryName);
+    internal sealed record RuleMatch(string Pattern, string CategoryName);
+}
+
+// ponytail: kein Testprojekt im Repo fuer dieses Ein-Personen-Tool - Assert-Selbsttest statt
+// xUnit-Setup. Aufruf: `dotnet run -- --selftest-categorization`.
+public static class CategorizationServiceSelfTest
+{
+    public static void Run()
+    {
+        var rules = new List<CategorizationService.RuleMatch>
+        {
+            new("Telekom", "Sonstiges"),
+            new("Telekom Deutschland GmbH", "Telefon & Internet"),
+            new("vertrag", "Abo"),
+            new("Netflix", "Abo"),
+        };
+
+        // Gegenpartei-Treffer gewinnt, obwohl der Verwendungszweck ebenfalls passen wuerde.
+        var telekom = CategorizationService.TryGetConfiguredCategory("Telekom Deutschland GmbH", "Vertragskonto 123", rules);
+        Assert(telekom == "Telefon & Internet", $"war {telekom}");
+
+        // Kein Treffer in der Gegenpartei -> Fallback auf Verwendungszweck.
+        var vertrag = CategorizationService.TryGetConfiguredCategory("Unbekannte Firma XY", "Vertragskonto 123", rules);
+        Assert(vertrag == "Abo", $"war {vertrag}");
+
+        // Weder Gegenpartei noch Verwendungszweck passen -> kein Treffer (Aufrufer faellt auf "Sonstiges" zurueck).
+        var none = CategorizationService.TryGetConfiguredCategory("Unbekannte Firma XY", "Diverses", rules);
+        Assert(none is null, $"war {none}");
+
+        // PayPal bleibt Sonderfall: Gegenpartei wird ignoriert, nur der Verwendungszweck zaehlt.
+        var paypal = CategorizationService.TryGetConfiguredCategory("PayPal Europe", "Netflix.com", rules);
+        Assert(paypal == "Abo", $"war {paypal}");
+
+        Console.WriteLine("CategorizationService self-test: OK");
+    }
+
+    private static void Assert(bool condition, string message)
+    {
+        if (!condition) throw new Exception($"CategorizationService self-test FAILED: {message}");
+    }
 }
