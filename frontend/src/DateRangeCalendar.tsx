@@ -8,6 +8,12 @@ import 'react-day-picker/dist/style.css'
 // bricht. react-day-picker statt eigenem Grid, damit Tastatur-Navigation/A11y nicht selbst
 // nachgebaut werden muss - Optik per CSS-Overrides (siehe .rdp-* Regeln in index.css) ans
 // dunkle Theme angepasst.
+//
+// Eigene Klick-Logik statt react-day-pickers eingebautem "range"-Algorithmus (onSelect): der
+// baut nach einem vollstaendigen Von/Bis standardmaessig bei jedem weiteren Klick einen
+// komplett neuen Bereich auf (erster Klick = neuer Start), man kann also nicht einfach nur das
+// "hintere" Datum verschieben. Hier wird stattdessen immer der naeher liegende Rand (Start oder
+// Ende) auf das geklickte Datum gesetzt bzw. der Bereich erweitert, wenn ausserhalb geklickt wird.
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const toIso = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -34,11 +40,28 @@ export default function DateRangeCalendar({ from, to, onChange, onDone }: Props)
 
   const selected: DateRange = { from: fromDate, to: toDate }
 
-  const handleSelect = (range: DateRange | undefined) => {
-    if (!range || !range.from) return
-    const nextFrom = toIso(range.from)
-    const nextTo = toIso(range.to ?? range.from)
-    onChange(nextFrom, nextTo)
+  const handleDayClick = (day: Date) => {
+    const clickedIso = toIso(day)
+
+    // Ausserhalb des aktuellen Bereichs geklickt: einfach den jeweiligen Rand erweitern.
+    if (day < fromDate) {
+      onChange(clickedIso, to)
+      return
+    }
+    if (day > toDate) {
+      onChange(from, clickedIso)
+      return
+    }
+
+    // Klick liegt innerhalb (oder genau auf einem Rand) des aktuellen Bereichs: den naeher
+    // liegenden Rand auf das geklickte Datum ziehen, statt einen neuen Bereich zu starten.
+    const distToStart = day.getTime() - fromDate.getTime()
+    const distToEnd = toDate.getTime() - day.getTime()
+    if (distToEnd <= distToStart) {
+      onChange(from, clickedIso)
+    } else {
+      onChange(clickedIso, to)
+    }
   }
 
   return (
@@ -51,7 +74,7 @@ export default function DateRangeCalendar({ from, to, onChange, onDone }: Props)
         month={month}
         onMonthChange={setMonth}
         selected={selected}
-        onSelect={handleSelect}
+        onDayClick={handleDayClick}
         showOutsideDays
       />
       <div className="range-calendar-footer">
