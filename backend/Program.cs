@@ -188,7 +188,18 @@ async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<Ba
         var existingById = await db.Transactions.FirstOrDefaultAsync(t => t.ExternalId == tx.ExternalId);
         if (existingById is not null)
         {
-            skipped.Add(new { tx.BookingDate, tx.Amount, tx.Purpose, matchedBy = "externalId", existingId = existingById.Id });
+            skipped.Add(new
+            {
+                tx.BookingDate,
+                tx.Amount,
+                tx.Purpose,
+                matchedBy = "externalId",
+                sharedExternalId = tx.ExternalId,
+                existingId = existingById.Id,
+                existingBookingDate = existingById.BookingDate,
+                existingAmount = existingById.Amount,
+                existingPurpose = existingById.Purpose
+            });
             continue;
         }
         var existingByContent = await db.Transactions.FirstOrDefaultAsync(t =>

@@ -39,7 +39,19 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importLoading, setImportLoading] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
-  type SkippedEntry = { bookingDate: string; amount: number; purpose: string; matchedBy: 'externalId' | 'content'; existingId: number }
+  type SkippedEntry = {
+    bookingDate: string
+    amount: number
+    purpose: string
+    matchedBy: 'externalId' | 'content'
+    existingId: number
+    sharedExternalId?: string
+    existingBookingDate?: string
+    existingAmount?: number
+    existingPurpose?: string
+    existingExternalId?: string
+    newExternalId?: string
+  }
   const [importSkipped, setImportSkipped] = useState<SkippedEntry[]>([])
 
   const importCamt053 = async (files: File[]) => {
@@ -109,7 +121,16 @@ export default function App() {
           <ul className="status-text" style={{ margin: '4px 0 0', paddingLeft: '18px' }}>
             {importSkipped.map((s, i) => (
               <li key={i}>
-                {s.bookingDate} · {s.amount.toFixed(2)} € · {s.purpose} — {s.matchedBy === 'externalId' ? 'gleiche Referenz' : 'gleiches Datum/Betrag/Zweck'} wie Buchung #{s.existingId}
+                {s.matchedBy === 'externalId' ? (
+                  <>
+                    {s.bookingDate} · {s.amount.toFixed(2)} € · {s.purpose} — gleiche Referenz "{s.sharedExternalId}" wie Buchung #{s.existingId}
+                    {' '}({s.existingBookingDate} · {s.existingAmount?.toFixed(2)} € · {s.existingPurpose})
+                  </>
+                ) : (
+                  <>
+                    {s.bookingDate} · {s.amount.toFixed(2)} € · {s.purpose} — gleiches Datum/Betrag/Zweck wie Buchung #{s.existingId}
+                  </>
+                )}
               </li>
             ))}
           </ul>
