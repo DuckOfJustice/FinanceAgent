@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { categoryColor } from './categoryColor'
+import { CATEGORY_COLOR_SLOTS, categoryColor, pickUnusedColorSlot } from './categoryColor'
+import ConfirmDialog from './ConfirmDialog'
 
-type Category = { id: number; name: string }
+type Category = { id: number; name: string; color: string | null }
 
 const iconProps = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -20,6 +21,9 @@ const IconCheck = () => (
 const IconPlus = () => (
   <svg {...iconProps}><path d="M12 5v14M5 12h14" /></svg>
 )
+const IconSearch = () => (
+  <svg {...iconProps} width={14} height={14}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+)
 
 // Liest die Fehlermeldung aus einer fehlgeschlagenen Response - Program.cs liefert bei
 // Validierungsfehlern (400/409) einfachen Text im Body, kein JSON.
@@ -34,13 +38,17 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
 
+  const [filterText, setFilterText] = useState('')
+
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [editColor, setEditColor] = useState<string>(CATEGORY_COLOR_SLOTS[0])
   const [editError, setEditError] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [deleteError, setDeleteError] = useState<{ id: number; message: string } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<Category | null>(null)
 
   const [newName, setNewName] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
@@ -66,6 +74,8 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
       setDeleteError(null)
       setNewName('')
       setAddError(null)
+      setFilterText('')
+      setConfirmDelete(null)
     } else if (!open && dialog.open) {
       dialog.close()
     }
@@ -74,6 +84,9 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
   const startEdit = (c: Category) => {
     setEditingId(c.id)
     setEditValue(c.name)
+    // Bereits gespeicherte Farbe uebernehmen; ohne eine vorhandene direkt eine noch unbenutzte
+    // vorauswaehlen, statt den Nutzer zu zwingen selbst eine zu suchen.
+    setEditColor(c.color ?? pickUnusedColorSlot(categories.filter(x => x.id !== c.id).map(x => x.color)))
     setEditError(null)
   }
 
@@ -93,7 +106,7 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
     const res = await fetch(`/api/categories/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, color: editColor }),
     })
     if (res.ok) {
       const updated: Category = await res.json()
@@ -106,8 +119,6 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
   }
 
   const deleteCategory = async (c: Category) => {
-    if (!window.confirm(`"${c.name}" löschen? Zugehörige Buchungen werden "Sonstiges" zugeordnet.`)) return
-
     setDeletingId(c.id)
     setDeleteError(null)
     const res = await fetch(`/api/categories/${c.id}`, { method: 'DELETE' })
@@ -142,6 +153,9 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
     setAddSaving(false)
   }
 
+  const query = filterText.trim().toLowerCase()
+  const filteredCategories = query ? categories.filter(c => c.name.toLowerCase().includes(query)) : categories
+
   return (
     <dialog
       ref={dialogRef}
@@ -151,11 +165,27 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
     >
       <div className="category-modal-inner">
         <div className="category-modal-header">
-          <h2 className="panel-title" style={{ margin: 0 }}>Kategorien verwalten</h2>
+          <h2 className="panel-title" style={{ margin: 0 }}>
+            Kategorien verwalten
+            {categories.length > 0 && <span className="category-modal-count"> · {categories.length}</span>}
+          </h2>
           <button type="button" className="icon-button" onClick={() => dialogRef.current?.close()} aria-label="Schließen">
             <IconClose />
           </button>
         </div>
+
+        {categories.length > 0 && (
+          <div className="category-search-wrap">
+            <IconSearch />
+            <input
+              type="text"
+              className="category-search"
+              placeholder="Kategorien durchsuchen…"
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+            />
+          </div>
+        )}
 
         {loading ? (
           <ul className="category-list">
@@ -168,12 +198,14 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
               </li>
             ))}
           </ul>
+        ) : filteredCategories.length === 0 ? (
+          <p className="muted-text">{categories.length === 0 ? 'Noch keine Kategorien.' : 'Keine Kategorien gefunden.'}</p>
         ) : (
           <ul className="category-list">
-            {categories.map(c => (
+            {filteredCategories.map(c => (
               <li key={c.id} className="category-row">
                 <div className="category-row-main">
-                  <span className="cat-dot" style={{ background: categoryColor(c.name) }} />
+                  <span className="cat-dot" style={{ background: categoryColor(c.name, c.color) }} />
                   {editingId === c.id ? (
                     <>
                       <input
@@ -213,7 +245,7 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
                           <button
                             type="button"
                             className="icon-button icon-button-danger"
-                            onClick={() => deleteCategory(c)}
+                            onClick={() => setConfirmDelete(c)}
                             disabled={deletingId === c.id}
                             aria-label={`"${c.name}" löschen`}
                           >
@@ -224,12 +256,39 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
                     </>
                   )}
                 </div>
+                {editingId === c.id && (
+                  <div className="category-color-picker" role="radiogroup" aria-label="Farbe wählen">
+                    {CATEGORY_COLOR_SLOTS.map(slot => (
+                      <button
+                        key={slot}
+                        type="button"
+                        role="radio"
+                        aria-checked={editColor === slot}
+                        aria-label={`Farbe ${slot}`}
+                        className={`color-swatch${editColor === slot ? ' is-selected' : ''}`}
+                        style={{ background: `var(--cat-${slot})` }}
+                        onClick={() => setEditColor(slot)}
+                        disabled={editSaving}
+                      />
+                    ))}
+                  </div>
+                )}
                 {editingId === c.id && editError && <p className="category-row-error">{editError}</p>}
                 {deleteError?.id === c.id && <p className="category-row-error">{deleteError.message}</p>}
               </li>
             ))}
           </ul>
         )}
+
+        <ConfirmDialog
+          open={confirmDelete !== null}
+          title="Kategorie löschen"
+          message={confirmDelete ? `"${confirmDelete.name}" löschen? Zugehörige Buchungen werden "Sonstiges" zugeordnet.` : ''}
+          confirmLabel="Löschen"
+          danger
+          onConfirm={() => { if (confirmDelete) deleteCategory(confirmDelete) }}
+          onClose={() => setConfirmDelete(null)}
+        />
 
         <div className="category-add">
           <div className="category-add-row">

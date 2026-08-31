@@ -78,7 +78,7 @@ export default function App() {
       <header className="app-header">
         <div className="app-header-inner">
           <div className="app-brand">
-            <span className="app-logo-badge" aria-hidden="true">💶🦆</span>
+            <img className="app-logo-badge" src="/duck-icon.png" alt="" aria-hidden="true" />
             <div>
               <div className="app-name">FinanceDuck</div>
               <div className="app-tagline">Finanzen mit Quak-Faktor</div>

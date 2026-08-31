@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { categoryColor } from './categoryColor'
+import ConfirmDialog from './ConfirmDialog'
+import DateRangeCalendar from './DateRangeCalendar'
 
 type CategorySummary = { category: string; totalAmount: number }
 type Transaction = { id: number; bookingDate: string; amount: number; counterpartyName: string | null; purpose: string; category: string }
-type Category = { id: number; name: string }
+type Category = { id: number; name: string; color: string | null }
 
 const iconProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -82,8 +84,10 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   const [deleteMsg, setDeleteMsg] = useState<string | null>(null)
 
   const [categories, setCategories] = useState<Category[]>([])
+  const colorByName = new Map(categories.map(c => [c.name, c.color]))
   const [updatingTxId, setUpdatingTxId] = useState<number | null>(null)
   const [ruleMsg, setRuleMsg] = useState<string | null>(null)
+  const [pendingRule, setPendingRule] = useState<{ pattern: string; category: string } | null>(null)
 
   // Von/Bis auf einen Button minimiert, der bei Klick das Popover mit den beiden
   // Datumsfeldern zeigt - schliesst sich per Klick ausserhalb wieder.
@@ -218,26 +222,34 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       await Promise.all([loadTransactions(), loadSummary()])
 
       const pattern = (tx.counterpartyName?.trim() || tx.purpose.slice(0, 40).trim())
-      if (pattern && window.confirm(`Kuenftige Buchungen von "${pattern}" auch automatisch als "${newCategory}" einordnen?`)) {
-        const category = categories.find(c => c.name === newCategory)
-        if (category) {
-          const ruleRes = await fetch('/api/rules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pattern, categoryId: category.id }),
-          })
-          setRuleMsg(
-            ruleRes.ok
-              ? `Regel angelegt: "${pattern}" → ${newCategory}.`
-              : ruleRes.status === 409
-                ? `Regel fuer "${pattern}" existiert bereits.`
-                : 'Regel konnte nicht angelegt werden.'
-          )
-        }
+      if (pattern) {
+        setPendingRule({ pattern, category: newCategory })
       }
     } finally {
       setUpdatingTxId(null)
     }
+  }
+
+  // Wird vom ConfirmDialog aufgerufen, wenn "Regel anlegen" bestaetigt wird (ersetzt das
+  // frühere window.confirm(), das sich nicht ins dunkle Design einfuegen liess).
+  const confirmPendingRule = async () => {
+    if (!pendingRule) return
+    const { pattern, category: newCategory } = pendingRule
+    const category = categories.find(c => c.name === newCategory)
+    if (!category) return
+
+    const ruleRes = await fetch('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pattern, categoryId: category.id }),
+    })
+    setRuleMsg(
+      ruleRes.ok
+        ? `Regel angelegt: "${pattern}" → ${newCategory}.`
+        : ruleRes.status === 409
+          ? `Regel fuer "${pattern}" existiert bereits.`
+          : 'Regel konnte nicht angelegt werden.'
+    )
   }
 
   const handleMonthSelect = (value: string) => {
@@ -266,7 +278,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   const renderCatRow = (d: typeof chartData[number], groupTotal: number) => {
     const pct = groupTotal > 0 ? (d.absAmount / groupTotal) * 100 : 0
     const barPct = groupTotal > 0 ? Math.max(pct, 2) : 0
-    const color = categoryColor(d.category)
+    const color = categoryColor(d.category, colorByName.get(d.category))
     const isSelected = selectedCategory === d.category
     const dimmed = selectedCategory !== null && !isSelected
     return (
@@ -321,14 +333,12 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
 
             {rangeOpen && (
               <div className="date-popover-panel">
-                <label className="field field-compact">
-                  <span className="field-label">Von</span>
-                  <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-                </label>
-                <label className="field field-compact">
-                  <span className="field-label">Bis</span>
-                  <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-                </label>
+                <DateRangeCalendar
+                  from={from}
+                  to={to}
+                  onChange={(f, t) => { setFrom(f); setTo(t) }}
+                  onDone={() => setRangeOpen(false)}
+                />
               </div>
             )}
           </div>
@@ -361,6 +371,16 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       {recategorizeMsg && <p className="status-text">{recategorizeMsg}</p>}
       {deleteMsg && <p className="status-text">{deleteMsg}</p>}
       {ruleMsg && <p className="status-text">{ruleMsg}</p>}
+
+      <ConfirmDialog
+        open={pendingRule !== null}
+        title="Regel anlegen?"
+        message={pendingRule ? `Künftige Buchungen von "${pendingRule.pattern}" auch automatisch als "${pendingRule.category}" einordnen?` : ''}
+        confirmLabel="Regel anlegen"
+        cancelLabel="Nur diesmal"
+        onConfirm={confirmPendingRule}
+        onClose={() => setPendingRule(null)}
+      />
 
       {data.length === 0 && !summaryLoading ? (
         <p className="muted-text">Keine Daten für diesen Zeitraum.</p>
@@ -440,7 +460,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
               <h2 className="panel-title" style={{ margin: 0 }}>Buchungen</h2>
               {selectedCategory ? (
                 <button type="button" className="filter-chip" onClick={() => setSelectedCategory(null)}>
-                  <span className="cat-dot" style={{ background: categoryColor(selectedCategory) }} />
+                  <span className="cat-dot" style={{ background: categoryColor(selectedCategory, colorByName.get(selectedCategory)) }} />
                   {selectedCategory}
                   <IconClose />
                 </button>
@@ -488,7 +508,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
                             value={t.category}
                             disabled={updatingTxId === t.id}
                             onChange={e => updateTransactionCategory(t, e.target.value)}
-                            style={{ color: categoryColor(t.category) }}
+                            style={{ color: categoryColor(t.category, colorByName.get(t.category)) }}
                           >
                             {categories.length === 0 && <option value={t.category}>{t.category}</option>}
                             {categories.map(c => (

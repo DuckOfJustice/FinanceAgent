@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { categoryColor } from './categoryColor'
+import ConfirmDialog from './ConfirmDialog'
 
-type Category = { id: number; name: string }
+type Category = { id: number; name: string; color: string | null }
 type Rule = { id: number; pattern: string; categoryId: number; categoryName: string }
 
 const iconProps = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -14,6 +15,9 @@ const IconTrash = () => (
 )
 const IconPlus = () => (
   <svg {...iconProps}><path d="M12 5v14M5 12h14" /></svg>
+)
+const IconSearch = () => (
+  <svg {...iconProps} width={14} height={14}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
 )
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
@@ -36,8 +40,11 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
 
+  const [filterText, setFilterText] = useState('')
+
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [deleteError, setDeleteError] = useState<{ id: number; message: string } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<Rule | null>(null)
 
   const [newPattern, setNewPattern] = useState('')
   const [newCategoryId, setNewCategoryId] = useState('')
@@ -67,14 +74,14 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
       setNewPattern('')
       setNewCategoryId('')
       setAddError(null)
+      setFilterText('')
+      setConfirmDelete(null)
     } else if (!open && dialog.open) {
       dialog.close()
     }
   }, [open])
 
   const deleteRule = async (r: Rule) => {
-    if (!window.confirm(`Regel "${r.pattern}" → "${r.categoryName}" löschen?`)) return
-
     setDeletingId(r.id)
     setDeleteError(null)
     const res = await fetch(`/api/rules/${r.id}`, { method: 'DELETE' })
@@ -114,6 +121,22 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
     setAddSaving(false)
   }
 
+  const query = filterText.trim().toLowerCase()
+  const filteredRules = query
+    ? rules.filter(r => r.pattern.toLowerCase().includes(query) || r.categoryName.toLowerCase().includes(query))
+    : rules
+
+  // Anzahl Regeln je Kategorie fuer die Gruppenkoepfe - einmal vorab zaehlen statt
+  // pro Zeile ueber die gesamte gefilterte Liste zu filtern.
+  const groupCounts = new Map<string, number>()
+  for (const r of filteredRules) {
+    groupCounts.set(r.categoryName, (groupCounts.get(r.categoryName) ?? 0) + 1)
+  }
+
+  // Farbe kommt von der Kategorie, nicht von der Regel - ueber den Namen nachschlagen, damit
+  // die Gruppenkoepfe dieselbe Farbe wie "Kategorien verwalten" zeigen.
+  const colorByName = new Map(categories.map(c => [c.name, c.color]))
+
   return (
     <dialog
       ref={dialogRef}
@@ -123,11 +146,27 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
     >
       <div className="category-modal-inner">
         <div className="category-modal-header">
-          <h2 className="panel-title" style={{ margin: 0 }}>Regeln verwalten</h2>
+          <h2 className="panel-title" style={{ margin: 0 }}>
+            Regeln verwalten
+            {rules.length > 0 && <span className="category-modal-count"> · {rules.length}</span>}
+          </h2>
           <button type="button" className="icon-button" onClick={() => dialogRef.current?.close()} aria-label="Schließen">
             <IconClose />
           </button>
         </div>
+
+        {rules.length > 0 && (
+          <div className="category-search-wrap">
+            <IconSearch />
+            <input
+              type="text"
+              className="category-search"
+              placeholder="Regeln durchsuchen…"
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+            />
+          </div>
+        )}
 
         {loading ? (
           <ul className="category-list">
@@ -142,31 +181,53 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
           </ul>
         ) : rules.length === 0 ? (
           <p className="muted-text">Noch keine Regeln.</p>
+        ) : filteredRules.length === 0 ? (
+          <p className="muted-text">Keine Regeln gefunden.</p>
         ) : (
           <ul className="category-list">
-            {rules.map(r => (
-              <li key={r.id} className="category-row">
-                <div className="category-row-main">
-                  <span className="cat-dot" style={{ background: categoryColor(r.categoryName) }} />
-                  <span className="category-name">{r.pattern}</span>
-                  <span className="rule-category-badge">{r.categoryName}</span>
-                  <div className="category-row-actions">
-                    <button
-                      type="button"
-                      className="icon-button icon-button-danger"
-                      onClick={() => deleteRule(r)}
-                      disabled={deletingId === r.id}
-                      aria-label={`Regel "${r.pattern}" löschen`}
-                    >
-                      <IconTrash />
-                    </button>
-                  </div>
-                </div>
-                {deleteError?.id === r.id && <p className="category-row-error">{deleteError.message}</p>}
-              </li>
-            ))}
+            {filteredRules.map((r, i) => {
+              const isNewGroup = i === 0 || filteredRules[i - 1].categoryName !== r.categoryName
+              return (
+                <Fragment key={r.id}>
+                  {isNewGroup && (
+                    <li className="rule-group-header">
+                      <span className="cat-dot" style={{ background: categoryColor(r.categoryName, colorByName.get(r.categoryName)) }} />
+                      <span>{r.categoryName}</span>
+                      <span className="rule-group-count">{groupCounts.get(r.categoryName)}</span>
+                    </li>
+                  )}
+                  <li className="category-row">
+                    <div className="category-row-main">
+                      <span className="category-name">{r.pattern}</span>
+                      <div className="category-row-actions">
+                        <button
+                          type="button"
+                          className="icon-button icon-button-danger"
+                          onClick={() => setConfirmDelete(r)}
+                          disabled={deletingId === r.id}
+                          aria-label={`Regel "${r.pattern}" löschen`}
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                    </div>
+                    {deleteError?.id === r.id && <p className="category-row-error">{deleteError.message}</p>}
+                  </li>
+                </Fragment>
+              )
+            })}
           </ul>
         )}
+
+        <ConfirmDialog
+          open={confirmDelete !== null}
+          title="Regel löschen"
+          message={confirmDelete ? `Regel "${confirmDelete.pattern}" → "${confirmDelete.categoryName}" löschen?` : ''}
+          confirmLabel="Löschen"
+          danger
+          onConfirm={() => { if (confirmDelete) deleteRule(confirmDelete) }}
+          onClose={() => setConfirmDelete(null)}
+        />
 
         <div className="category-add">
           <div className="category-add-row">
