@@ -607,104 +607,81 @@ button:focus-visible,
   white-space: nowrap;
 }
 
-/* Zwei-Monats-Kalender fuer "Von/Bis" - ersetzt zwei native <input type="date">, deren
-   Kalender-Overlay sich nicht ins dunkle Theme einfuegen laesst. */
+/* Zwei-Monats-Kalender fuer "Von/Bis", jetzt mit react-day-picker (siehe DateRangeCalendar.tsx)
+   statt eigenem Grid - hier nur noch die Farb-Ueberschreibungen fuers dunkle Theme. */
 .range-calendar {
   max-width: calc(100vw - 2rem);
 }
 
-.range-calendar-months {
-  display: flex;
+.range-calendar .rdp {
+  --rdp-cell-size: 34px;
+  --rdp-accent-color: var(--chart-balance);
+  --rdp-background-color: color-mix(in srgb, var(--chart-balance) 16%, transparent);
+  --rdp-accent-color-dark: var(--chart-balance);
+  --rdp-background-color-dark: color-mix(in srgb, var(--chart-balance) 16%, transparent);
+  --rdp-outline: 1px solid var(--border);
+  --rdp-outline-selected: 1px solid var(--chart-balance);
+  margin: 0;
+  color: var(--ink-primary);
+}
+
+.range-calendar .rdp-months {
   gap: 1.25rem;
 }
 
-.range-calendar-month {
-  width: 208px;
-}
-
-.range-calendar-month-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.range-calendar .rdp-caption_label {
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 0.5rem;
+  color: var(--ink-primary);
 }
 
-.range-calendar-nav {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: transparent;
+.range-calendar .rdp-head_cell {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-muted);
+  text-transform: none;
+}
+
+.range-calendar .rdp-nav_button {
   color: var(--ink-secondary);
-  font-size: 15px;
-  line-height: 1;
   border-radius: 6px;
 }
 
-.range-calendar-nav:hover:not(:disabled) {
+.range-calendar .rdp-nav_button:hover {
   background: color-mix(in srgb, var(--ink-primary) 8%, transparent);
   color: var(--ink-primary);
 }
 
-.range-calendar-nav-spacer {
-  width: 24px;
-  height: 24px;
-}
-
-.range-calendar-weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  margin-bottom: 0.15rem;
-}
-
-.range-calendar-weekdays span {
-  text-align: center;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-
-.range-calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-}
-
-.range-calendar-cell {
-  width: 100%;
-  aspect-ratio: 1;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+.range-calendar .rdp-day {
   color: var(--ink-primary);
-  font: inherit;
-  font-size: 12.5px;
+  border-radius: 6px;
   font-variant-numeric: tabular-nums;
 }
 
-.range-calendar-cell.is-empty {
-  cursor: default;
+.range-calendar .rdp-day_outside {
+  color: var(--ink-muted);
+  opacity: 0.5;
 }
 
-.range-calendar-cell:not(.is-empty):hover {
+.range-calendar .rdp-day:hover:not(.rdp-day_selected):not(.rdp-day_disabled) {
   background: color-mix(in srgb, var(--ink-primary) 8%, transparent);
 }
 
-.range-calendar-cell.is-in-range {
-  background: color-mix(in srgb, var(--chart-balance) 16%, transparent);
-  border-radius: 0;
-}
-
-.range-calendar-cell.is-today {
+.range-calendar .rdp-day_today:not(.rdp-day_selected) {
   box-shadow: 0 0 0 1px var(--border) inset;
 }
 
-.range-calendar-cell.is-selected {
-  background: var(--chart-balance);
-  color: #fff;
+.range-calendar .rdp-day_range_start,
+.range-calendar .rdp-day_range_end {
+  background: var(--chart-balance) !important;
+  color: #fff !important;
   font-weight: 600;
+}
+
+.range-calendar .rdp-day_range_middle {
+  background: color-mix(in srgb, var(--chart-balance) 16%, transparent) !important;
+  border-radius: 0;
+  color: var(--ink-primary) !important;
 }
 
 .range-calendar-footer {
@@ -728,12 +705,9 @@ button:focus-visible,
 }
 
 @media (max-width: 560px) {
-  .range-calendar-months {
+  .range-calendar .rdp-months {
     flex-direction: column;
     gap: 0.75rem;
-  }
-  .range-calendar-month {
-    width: 100%;
   }
 }
 
