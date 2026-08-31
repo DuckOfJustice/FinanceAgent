@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { categoryColor } from './categoryColor'
 
 type CategorySummary = { category: string; totalAmount: number }
-type Transaction = { bookingDate: string; amount: number; counterpartyName: string | null; purpose: string }
+type Transaction = { id: number; bookingDate: string; amount: number; counterpartyName: string | null; purpose: string; category: string }
+type Category = { id: number; name: string }
 
 const iconProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -73,6 +74,10 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   const [recategorizeLoading, setRecategorizeLoading] = useState(false)
   const [recategorizeMsg, setRecategorizeMsg] = useState<string | null>(null)
 
+  const [categories, setCategories] = useState<Category[]>([])
+  const [updatingTxId, setUpdatingTxId] = useState<number | null>(null)
+  const [ruleMsg, setRuleMsg] = useState<string | null>(null)
+
   // Von/Bis auf einen Button minimiert, der bei Klick das Popover mit den beiden
   // Datumsfeldern zeigt - schliesst sich per Klick ausserhalb wieder.
   const [rangeOpen, setRangeOpen] = useState(false)
@@ -114,7 +119,11 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   // Kategorien/Regeln werden jetzt oben in der Navbar verwaltet (App.tsx) - nach dem
   // Schliessen von "Kategorien verwalten" hier neu laden, falls sich Namen geaendert haben.
   const isFirstRefreshToken = useRef(true)
+  const loadCategories = () => {
+    fetch('/api/categories').then(r => r.json()).then(setCategories)
+  }
   useEffect(() => {
+    loadCategories()
     if (isFirstRefreshToken.current) {
       isFirstRefreshToken.current = false
       return
@@ -124,15 +133,19 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
 
   // Ohne ausgewaehlte Kategorie: juengste Buchungen im Zeitraum, damit die Liste beim
   // initialen Laden nicht leer ist. Mit Kategorie: wie bisher der volle Drilldown.
-  useEffect(() => {
+  const loadTransactions = () => {
     setTransactionsLoading(true)
     const url = selectedCategory
       ? `/api/transactions?from=${from}&to=${to}&category=${encodeURIComponent(selectedCategory)}`
       : `/api/transactions?from=${from}&to=${to}`
-    fetch(url)
+    return fetch(url)
       .then(r => r.json())
       .then(setTransactions)
       .finally(() => setTransactionsLoading(false))
+  }
+
+  useEffect(() => {
+    loadTransactions()
   }, [selectedCategory, from, to])
 
   const refresh = async () => {
@@ -161,6 +174,46 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       setRecategorizeMsg(`Fehler bei der Neukategorisierung (${res.status}).`)
     }
     setRecategorizeLoading(false)
+  }
+
+  // Direkt in der Buchungsliste umkategorisieren - unabhaengig von Regeln, wirkt sofort nur
+  // fuer diese eine Buchung. Fragt danach, ob kuenftige Buchungen desselben Gegenparts
+  // automatisch genauso einsortiert werden sollen (legt dafuer eine Regel an).
+  const updateTransactionCategory = async (tx: Transaction, newCategory: string) => {
+    if (newCategory === tx.category) return
+    setUpdatingTxId(tx.id)
+    setRuleMsg(null)
+    try {
+      const res = await fetch(`/api/transactions/${tx.id}/category`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: newCategory }),
+      })
+      if (!res.ok) return
+
+      await Promise.all([loadTransactions(), loadSummary()])
+
+      const pattern = (tx.counterpartyName?.trim() || tx.purpose.slice(0, 40).trim())
+      if (pattern && window.confirm(`Kuenftige Buchungen von "${pattern}" auch automatisch als "${newCategory}" einordnen?`)) {
+        const category = categories.find(c => c.name === newCategory)
+        if (category) {
+          const ruleRes = await fetch('/api/rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pattern, categoryId: category.id }),
+          })
+          setRuleMsg(
+            ruleRes.ok
+              ? `Regel angelegt: "${pattern}" → ${newCategory}.`
+              : ruleRes.status === 409
+                ? `Regel fuer "${pattern}" existiert bereits.`
+                : 'Regel konnte nicht angelegt werden.'
+          )
+        }
+      }
+    } finally {
+      setUpdatingTxId(null)
+    }
   }
 
   const handleMonthSelect = (value: string) => {
@@ -272,6 +325,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
 
       {refreshError && <p className="status-text status-critical-text">{refreshError}</p>}
       {recategorizeMsg && <p className="status-text">{recategorizeMsg}</p>}
+      {ruleMsg && <p className="status-text">{ruleMsg}</p>}
 
       {data.length === 0 && !summaryLoading ? (
         <p className="muted-text">Keine Daten für diesen Zeitraum.</p>
@@ -369,8 +423,9 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
                 <table>
                   <colgroup>
                     <col style={{ width: '80px' }} />
-                    <col style={{ width: '25%' }} />
+                    <col style={{ width: '22%' }} />
                     <col />
+                    <col style={{ width: '150px' }} />
                     <col style={{ width: '112px' }} />
                   </colgroup>
                   <thead>
@@ -378,12 +433,13 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
                       <th>Datum</th>
                       <th>Gegenpartei</th>
                       <th>Verwendungszweck</th>
+                      <th>Kategorie</th>
                       <th style={{ textAlign: 'right' }}>Betrag</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map((t, i) => (
-                      <tr key={i}>
+                    {transactions.map(t => (
+                      <tr key={t.id}>
                         <td style={{ color: 'var(--ink-secondary)', whiteSpace: 'nowrap' }}>
                           {formatDe(t.bookingDate)}
                         </td>
@@ -391,6 +447,20 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
                           {t.counterpartyName ?? '–'}
                         </td>
                         <td className="tx-purpose" title={t.purpose}>{t.purpose}</td>
+                        <td>
+                          <select
+                            className="tx-category-select"
+                            value={t.category}
+                            disabled={updatingTxId === t.id}
+                            onChange={e => updateTransactionCategory(t, e.target.value)}
+                            style={{ color: categoryColor(t.category) }}
+                          >
+                            {categories.length === 0 && <option value={t.category}>{t.category}</option>}
+                            {categories.map(c => (
+                              <option key={c.id} value={c.name} style={{ color: 'var(--ink-primary)' }}>{c.name}</option>
+                            ))}
+                          </select>
+                        </td>
                         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-primary)', whiteSpace: 'nowrap' }}>
                           {eur(t.amount)}
                         </td>

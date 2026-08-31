@@ -313,10 +313,26 @@ app.MapGet("/api/transactions", async (DateOnly from, DateOnly to, string? categ
     var transactions = await query
         .OrderByDescending(t => t.BookingDate)
         .Take(take)
-        .Select(t => new { t.BookingDate, t.Amount, t.CounterpartyName, t.Purpose })
+        .Select(t => new { t.Id, t.BookingDate, t.Amount, t.CounterpartyName, t.Purpose, t.Category })
         .ToListAsync();
 
     return Results.Ok(transactions);
+});
+
+// Einzelne Buchung manuell umkategorisieren (z.B. Dropdown in der Buchungsliste im Dashboard) -
+// unabhaengig von Regeln/Neu-kategorisieren, greift sofort nur fuer diese eine Buchung.
+app.MapPut("/api/transactions/{id:int}/category", async (int id, CategoryAssignRequest body, FinanceDbContext db) =>
+{
+    var categoryName = body.Category?.Trim();
+    if (string.IsNullOrEmpty(categoryName)) return Results.BadRequest("Kategorie darf nicht leer sein.");
+    if (!await db.Categories.AnyAsync(c => c.Name == categoryName)) return Results.BadRequest("Unbekannte Kategorie.");
+
+    var tx = await db.Transactions.FindAsync(id);
+    if (tx is null) return Results.NotFound();
+
+    tx.Category = categoryName;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { tx.Id, tx.Category });
 });
 
 // Monatsverlauf (Einnahmen/Ausgaben/Saldo) fuer den Trend-Chart im Dashboard. Endmonat per
@@ -352,3 +368,4 @@ app.Run();
 
 record CategoryRequest(string? Name);
 record RuleRequest(string? Pattern, int CategoryId);
+record CategoryAssignRequest(string? Category);
