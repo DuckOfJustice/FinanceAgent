@@ -179,13 +179,22 @@ async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<Ba
     var skipped = new List<object>();
     foreach (var tx in transactions)
     {
-        // ExternalId allein reicht nicht: EnableBanking (/api/refresh) und ein CAMT.053-Import
-        // vergeben fuer dieselbe reale Buchung unterschiedliche Referenzen (API-eigene
-        // Transaktions-ID vs. AcctSvcrRef der Bank). Bei ueberlappenden Zeitraeumen aus beiden
-        // Quellen faellt hier daher zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck - dabei
-        // wird der Match-Grund mitgeloggt, um einen echten Doppel-Eintrag vom seltenen Fall zweier
-        // wirklich verschiedener Buchungen mit zufaellig identischem Datum/Betrag/Zweck zu unterscheiden.
-        var existingById = await db.Transactions.FirstOrDefaultAsync(t => t.ExternalId == tx.ExternalId);
+        // ExternalId allein reicht nicht - in beide Richtungen:
+        // 1) EnableBanking (/api/refresh) und ein CAMT.053-Import vergeben fuer dieselbe reale
+        //    Buchung unterschiedliche Referenzen (API-eigene Transaktions-ID vs. AcctSvcrRef der
+        //    Bank). Bei ueberlappenden Zeitraeumen aus beiden Quellen faellt hier daher
+        //    zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck.
+        // 2) Manche Zahlungsdienstleister vergeben dieselbe Referenz mehrfach fuer echt
+        //    verschiedene Buchungen - z.B. Lohn/Gehalt-Ueberweisungen, bei denen AcctSvcrRef/
+        //    EndToEndId eine feste Kunden-/Zahlungslaufnummer statt einer pro Buchung eindeutigen
+        //    ID ist. Deshalb muessen bei einem ExternalId-Treffer Datum UND Betrag ebenfalls
+        //    uebereinstimmen, sonst ist es trotz gleicher Referenz offensichtlich eine andere
+        //    Buchung und faellt weiter unten in die Inhalts-Pruefung durch.
+        // In beiden Faellen wird der Match-Grund mitgeloggt, um einen echten Doppel-Eintrag vom
+        // seltenen Fall zweier wirklich verschiedener Buchungen mit zufaellig identischem
+        // Datum/Betrag/Zweck zu unterscheiden.
+        var existingById = await db.Transactions.FirstOrDefaultAsync(t =>
+            t.ExternalId == tx.ExternalId && t.BookingDate == tx.BookingDate && t.Amount == tx.Amount);
         if (existingById is not null)
         {
             skipped.Add(new
@@ -256,6 +265,18 @@ async Task ImportDedupSelfTestAsync()
     var distinctTx = new BankTransaction("camt-acctsvcrref-789", new DateOnly(2025, 9, 15), -12.00m, "Testhaendler", "Testkauf");
     var (imported3, skipped3) = await ImportTransactionsAsync([distinctTx], testCategorizer, testDb);
     SelfTestAssert(imported3 == 1 && skipped3.Count == 0, $"echte andere Buchung: erwartet 1/0, war {imported3}/{skipped3.Count}");
+
+    // Regression: manche Zahlungsdienstleister (z.B. Lohn/Gehalt-Laeufe) vergeben dieselbe
+    // AcctSvcrRef/EndToEndId fuer jede Ueberweisung wieder - hier zwei Gehaltszahlungen an
+    // verschiedenen Tagen (identischer Betrag, wie im real gemeldeten Fall) mit identischer
+    // ExternalId. Beide muessen importiert werden, keine darf faelschlich als Duplikat gelten.
+    var gehaltSep = new BankTransaction("00560023", new DateOnly(2025, 9, 16), 2170.17m, "DT Privatkunden GmbH", "Lohn/Gehalt 00560023/202509");
+    var (imported4, skipped4) = await ImportTransactionsAsync([gehaltSep], testCategorizer, testDb);
+    SelfTestAssert(imported4 == 1 && skipped4.Count == 0, $"erste Gehaltszahlung: erwartet 1/0, war {imported4}/{skipped4.Count}");
+
+    var gehaltOkt = new BankTransaction("00560023", new DateOnly(2025, 10, 16), 2170.17m, "DT Privatkunden GmbH", "Lohn/Gehalt 00560023/202510");
+    var (imported5, skipped5) = await ImportTransactionsAsync([gehaltOkt], testCategorizer, testDb);
+    SelfTestAssert(imported5 == 1 && skipped5.Count == 0, $"zweite Gehaltszahlung trotz gleicher Referenz: erwartet 1/0, war {imported5}/{skipped5.Count}");
 
     Console.WriteLine("Import-Dedup self-test: OK");
 }
