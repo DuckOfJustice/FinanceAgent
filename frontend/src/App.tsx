@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import MonthlyDashboard from './MonthlyDashboard'
 import CategoryManager from './CategoryManager'
 import RuleManager from './RuleManager'
@@ -19,10 +19,42 @@ const IconListChecks = () => (
   </svg>
 )
 
+const IconUpload = () => (
+  <svg {...iconProps}>
+    <path d="M12 16V4M7 9l5-5 5 5" />
+    <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+  </svg>
+)
+
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => '')
+  return text || fallback
+}
+
 export default function App() {
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [ruleManagerOpen, setRuleManagerOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importMessage, setImportMessage] = useState<string | null>(null)
+
+  const importCamt053 = async (file: File) => {
+    setImportLoading(true)
+    setImportMessage(null)
+    const body = new FormData()
+    body.append('file', file)
+    const res = await fetch('/api/import/camt053', { method: 'POST', body })
+    if (res.ok) {
+      const { imported, total } = await res.json()
+      setImportMessage(`${imported} von ${total} Buchungen importiert.`)
+      setRefreshToken(t => t + 1)
+    } else {
+      setImportMessage(await errorMessage(res, 'Fehler beim Import.'))
+    }
+    setImportLoading(false)
+  }
 
   return (
     <div className="app-shell">
@@ -46,8 +78,25 @@ export default function App() {
               <IconListChecks />
               <span>Regeln verwalten</span>
             </button>
+
+            <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
+              <IconUpload />
+              <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xml"
+              hidden
+              onChange={e => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) importCamt053(file)
+              }}
+            />
           </nav>
         </div>
+        {importMessage && <p className="status-text">{importMessage}</p>}
       </header>
 
       <main className="app-main">

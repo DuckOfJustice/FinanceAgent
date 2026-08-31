@@ -2,6 +2,17 @@ using FinanceDuck.Api;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
+if (args is ["--selftest-camt053"])
+{
+    Camt053ParserSelfTest.Run();
+    return;
+}
+if (args is ["--selftest-categorization"])
+{
+    CategorizationServiceSelfTest.Run();
+    return;
+}
+
 Directory.CreateDirectory("data");
 
 var builder = WebApplication.CreateBuilder(args);
@@ -128,6 +139,32 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
         return Results.Json(new { error = $"Zugriff blockiert: {ex.Message}" }, statusCode: 429);
     }
 
+    var imported = await ImportTransactionsAsync(transactions, categorizer, db);
+    return Results.Ok(new { imported });
+});
+
+// Bankunabhaengiger Nachimport: CAMT.052/053-Datei hochladen, um Buchungen zu importieren, die
+// weiter zurueckliegen als das 90-Tage-Limit der EnableBanking-Session. Gleiche Dedup-/
+// Kategorisierungslogik wie /api/refresh, nur die Quelle der Transaktionen unterscheidet sich.
+app.MapPost("/api/import/camt053", async (IFormFile file, CategorizationService categorizer, FinanceDbContext db) =>
+{
+    List<BankTransaction> transactions;
+    try
+    {
+        await using var stream = file.OpenReadStream();
+        transactions = Camt053Parser.Parse(stream);
+    }
+    catch (Exception ex) when (ex is System.Xml.XmlException or InvalidOperationException)
+    {
+        return Results.BadRequest($"Datei konnte nicht gelesen werden: {ex.Message}");
+    }
+
+    var imported = await ImportTransactionsAsync(transactions, categorizer, db);
+    return Results.Ok(new { imported, total = transactions.Count });
+}).DisableAntiforgery(); // Ein-Personen-Tool ohne Cookie-Auth - kein CSRF-Kontext, den es zu schuetzen gaebe.
+
+async Task<int> ImportTransactionsAsync(List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
+{
     var imported = 0;
     foreach (var tx in transactions)
     {
@@ -146,8 +183,8 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
         imported++;
     }
     await db.SaveChangesAsync();
-    return Results.Ok(new { imported });
-});
+    return imported;
+}
 
 // Kategorisiert bereits gespeicherte Buchungen neu (z.B. nach Anpassung von
 // category-rules.json oder des Prompts) - /api/refresh setzt die Kategorie sonst
@@ -257,13 +294,21 @@ app.MapPost("/api/rules", async (RuleRequest body, FinanceDbContext db) =>
 {
     var pattern = body.Pattern?.Trim();
     if (string.IsNullOrEmpty(pattern)) return Results.BadRequest("Muster darf nicht leer sein.");
-    if (await db.Rules.AnyAsync(r => r.Pattern == pattern)) return Results.Conflict("Muster existiert bereits.");
 
     var category = await db.Categories.FindAsync(body.CategoryId);
     if (category is null) return Results.BadRequest("Unbekannte Kategorie.");
 
-    var rule = new Rule { Pattern = pattern, CategoryId = category.Id };
-    db.Rules.Add(rule);
+    // Muster existiert schon in einer anderen Kategorie -> Regel umhaengen statt Fehler.
+    var rule = await db.Rules.FirstOrDefaultAsync(r => r.Pattern == pattern);
+    if (rule is null)
+    {
+        rule = new Rule { Pattern = pattern, CategoryId = category.Id };
+        db.Rules.Add(rule);
+    }
+    else
+    {
+        rule.CategoryId = category.Id;
+    }
     await db.SaveChangesAsync();
     return Results.Ok(new { rule.Id, rule.Pattern, CategoryId = category.Id, CategoryName = category.Name });
 });

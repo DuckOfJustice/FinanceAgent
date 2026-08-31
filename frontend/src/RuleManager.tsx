@@ -112,7 +112,7 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
     })
     if (res.ok) {
       const created: Rule = await res.json()
-      setRules(prev => sortRules([...prev, created]))
+      setRules(prev => sortRules([...prev.filter(r => r.id !== created.id), created]))
       setNewPattern('')
       setNewCategoryId('')
     } else {
