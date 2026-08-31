@@ -40,15 +40,16 @@ export default function App() {
   const [importLoading, setImportLoading] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
 
-  const importCamt053 = async (file: File) => {
+  const importCamt053 = async (files: FileList) => {
     setImportLoading(true)
     setImportMessage(null)
     const body = new FormData()
-    body.append('file', file)
+    for (const file of files) body.append('files', file)
     const res = await fetch('/api/import/camt053', { method: 'POST', body })
     if (res.ok) {
-      const { imported, total } = await res.json()
-      setImportMessage(`${imported} von ${total} Buchungen importiert.`)
+      const { imported, total, errors } = await res.json()
+      const errorSuffix = errors.length > 0 ? ` (${errors.length} Datei(en) fehlgeschlagen: ${errors.map((e: { file: string }) => e.file).join(', ')})` : ''
+      setImportMessage(`${imported} von ${total} Buchungen importiert.${errorSuffix}`)
       setRefreshToken(t => t + 1)
     } else {
       setImportMessage(await errorMessage(res, 'Fehler beim Import.'))
@@ -87,11 +88,12 @@ export default function App() {
               ref={fileInputRef}
               type="file"
               accept=".xml"
+              multiple
               hidden
               onChange={e => {
-                const file = e.target.files?.[0]
+                const files = e.target.files
                 e.target.value = ''
-                if (file) importCamt053(file)
+                if (files && files.length > 0) importCamt053(files)
               }}
             />
           </nav>

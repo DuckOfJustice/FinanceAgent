@@ -132,24 +132,36 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
     return Results.Ok(new { imported });
 });
 
-// Bankunabhaengiger Nachimport: CAMT.052/053-Datei hochladen, um Buchungen zu importieren, die
-// weiter zurueckliegen als das 90-Tage-Limit der EnableBanking-Session. Gleiche Dedup-/
-// Kategorisierungslogik wie /api/refresh, nur die Quelle der Transaktionen unterscheidet sich.
-app.MapPost("/api/import/camt053", async (IFormFile file, CategorizationService categorizer, FinanceDbContext db) =>
+// Bankunabhaengiger Nachimport: eine oder mehrere CAMT.052/053-Dateien hochladen, um Buchungen
+// zu importieren, die weiter zurueckliegen als das 90-Tage-Limit der EnableBanking-Session.
+// Gleiche Dedup-/Kategorisierungslogik wie /api/refresh, nur die Quelle der Transaktionen
+// unterscheidet sich. Eine einzelne kaputte Datei bricht nicht den ganzen Batch ab - sie wird
+// uebersprungen und als Fehler gemeldet, waehrend die uebrigen Dateien trotzdem importiert werden.
+app.MapPost("/api/import/camt053", async (IFormFileCollection files, CategorizationService categorizer, FinanceDbContext db) =>
 {
-    List<BankTransaction> transactions;
-    try
+    var imported = 0;
+    var total = 0;
+    var errors = new List<object>();
+
+    foreach (var file in files)
     {
-        await using var stream = file.OpenReadStream();
-        transactions = Camt053Parser.Parse(stream);
-    }
-    catch (Exception ex) when (ex is System.Xml.XmlException or InvalidOperationException)
-    {
-        return Results.BadRequest($"Datei konnte nicht gelesen werden: {ex.Message}");
+        List<BankTransaction> transactions;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            transactions = Camt053Parser.Parse(stream);
+        }
+        catch (Exception ex) when (ex is System.Xml.XmlException or InvalidOperationException)
+        {
+            errors.Add(new { file = file.FileName, message = ex.Message });
+            continue;
+        }
+
+        total += transactions.Count;
+        imported += await ImportTransactionsAsync(transactions, categorizer, db);
     }
 
-    var imported = await ImportTransactionsAsync(transactions, categorizer, db);
-    return Results.Ok(new { imported, total = transactions.Count });
+    return Results.Ok(new { imported, total, errors });
 }).DisableAntiforgery(); // Ein-Personen-Tool ohne Cookie-Auth - kein CSRF-Kontext, den es zu schuetzen gaebe.
 
 async Task<int> ImportTransactionsAsync(List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
