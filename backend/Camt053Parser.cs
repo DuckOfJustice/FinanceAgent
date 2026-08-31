@@ -37,10 +37,14 @@ public static class Camt053Parser
         // direkt in Ntry - manche Banken liefern sie gar nicht mit (z.B. Kartenzahlungen).
         var txDtls = Descendant(ntry, "TxDtls");
 
-        var externalId = Descendant(txDtls, "AcctSvcrRef")?.Value
-            ?? Descendant(txDtls, "EndToEndId")?.Value
-            ?? Child(ntry, "AcctSvcrRef")?.Value
-            ?? Child(ntry, "NtryRef")?.Value;
+        // Leere Elemente (<AcctSvcrRef/>) liefern "" statt null und wuerden die Kette sonst
+        // faelschlich stoppen - und "NOTPROVIDED" ist der ISO-20022-Platzhalter fuer "vom
+        // Absender nicht gesetzt", kein echter Wert. Beides wuerde sonst unzusammenhaengende
+        // Buchungen auf dieselbe ExternalId kollabieren lassen.
+        var externalId = MeaningfulReference(Descendant(txDtls, "AcctSvcrRef")?.Value)
+            ?? MeaningfulReference(Descendant(txDtls, "EndToEndId")?.Value)
+            ?? MeaningfulReference(Child(ntry, "AcctSvcrRef")?.Value)
+            ?? MeaningfulReference(Child(ntry, "NtryRef")?.Value);
 
         var relatedParties = Descendant(txDtls, "RltdPties");
         // Bei einer Belastung (DBIT) ist die Gegenpartei der Kreditor (Empfaenger), bei einer
@@ -59,6 +63,9 @@ public static class Camt053Parser
 
         return new BankTransaction(externalId, bookingDate, amount, counterpartyName, purpose);
     }
+
+    private static string? MeaningfulReference(string? value) =>
+        string.IsNullOrWhiteSpace(value) || value.Equals("NOTPROVIDED", StringComparison.OrdinalIgnoreCase) ? null : value;
 
     private static XElement? Child(XElement? parent, string localName) =>
         parent?.Elements().FirstOrDefault(e => e.Name.LocalName == localName);
@@ -106,6 +113,30 @@ public static class Camt053ParserSelfTest
                 <BookgDt><Dt>2026-08-15</Dt></BookgDt>
                 <AddtlNtryInf>Kartenzahlung Baeckerei</AddtlNtryInf>
               </Ntry>
+              <Ntry>
+                <Amt Ccy="EUR">10.00</Amt>
+                <CdtDbtInd>DBIT</CdtDbtInd>
+                <BookgDt><Dt>2026-08-05</Dt></BookgDt>
+                <NtryDtls>
+                  <TxDtls>
+                    <Refs><AcctSvcrRef></AcctSvcrRef><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+                    <RltdPties><Cdtr><Nm>Haendler A</Nm></Cdtr></RltdPties>
+                    <RmtInf><Ustrd>Kauf A</Ustrd></RmtInf>
+                  </TxDtls>
+                </NtryDtls>
+              </Ntry>
+              <Ntry>
+                <Amt Ccy="EUR">77.00</Amt>
+                <CdtDbtInd>DBIT</CdtDbtInd>
+                <BookgDt><Dt>2026-08-06</Dt></BookgDt>
+                <NtryDtls>
+                  <TxDtls>
+                    <Refs><AcctSvcrRef></AcctSvcrRef><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+                    <RltdPties><Cdtr><Nm>Haendler B</Nm></Cdtr></RltdPties>
+                    <RmtInf><Ustrd>Kauf B</Ustrd></RmtInf>
+                  </TxDtls>
+                </NtryDtls>
+              </Ntry>
             </Rpt>
           </BkToCstmrAcctRpt>
         </Document>
@@ -116,7 +147,7 @@ public static class Camt053ParserSelfTest
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(SampleXml));
         var result = Camt053Parser.Parse(stream);
 
-        Assert(result.Count == 3, $"erwartet 3 Eintraege, war {result.Count}");
+        Assert(result.Count == 5, $"erwartet 5 Eintraege, war {result.Count}");
 
         var netflix = result[0];
         Assert(netflix.ExternalId == "REF-001", $"ExternalId war {netflix.ExternalId}");
@@ -135,6 +166,15 @@ public static class Camt053ParserSelfTest
         Assert(card.CounterpartyName is null, "CounterpartyName sollte null sein");
         Assert(card.Purpose == "Kartenzahlung Baeckerei", $"Purpose war {card.Purpose}");
         Assert(card.ExternalId == $"camt:{card.BookingDate:O}:{card.Amount}:{card.Purpose}", $"ExternalId war {card.ExternalId}");
+
+        // Leeres <AcctSvcrRef/> und der ISO-20022-Platzhalter "NOTPROVIDED" fuer EndToEndId sind
+        // beide kein echter Wert - zwei verschiedene Buchungen mit beidem duerfen NICHT auf
+        // dieselbe ExternalId kollabieren (sonst wuerde die zweite als Duplikat der ersten gelten).
+        var haendlerA = result[3];
+        var haendlerB = result[4];
+        Assert(haendlerA.ExternalId != haendlerB.ExternalId, $"ExternalIds kollidieren: {haendlerA.ExternalId}");
+        Assert(haendlerA.ExternalId != "NOTPROVIDED" && haendlerB.ExternalId != "NOTPROVIDED", "ExternalId darf nicht der ISO-Platzhalter sein");
+        Assert(haendlerA.ExternalId != "", "ExternalId darf nicht leer sein");
 
         Console.WriteLine("Camt053Parser self-test: OK");
     }
