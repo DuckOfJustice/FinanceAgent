@@ -10,10 +10,9 @@ import 'react-day-picker/dist/style.css'
 // dunkle Theme angepasst.
 //
 // Eigene Klick-Logik statt react-day-pickers eingebautem "range"-Algorithmus (onSelect): der
-// baut nach einem vollstaendigen Von/Bis standardmaessig bei jedem weiteren Klick einen
-// komplett neuen Bereich auf (erster Klick = neuer Start), man kann also nicht einfach nur das
-// "hintere" Datum verschieben. Hier wird stattdessen immer der naeher liegende Rand (Start oder
-// Ende) auf das geklickte Datum gesetzt bzw. der Bereich erweitert, wenn ausserhalb geklickt wird.
+// baut nach einem vollstaendigen Von/Bis bei jedem weiteren Klick sofort einen neuen Bereich
+// auf. Stattdessen fester Zwei-Klick-Ablauf: 1. Klick = Von, 2. Klick = Bis (liegt der 2. Klick
+// vor dem 1., wird er stattdessen als neues Von genommen und es wird weiter auf ein Bis gewartet).
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const toIso = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -38,30 +37,29 @@ export default function DateRangeCalendar({ from, to, onChange, onDone }: Props)
   // navigierbar, ohne dass sich dabei die eigentliche Auswahl (from/to) veraendert.
   const [month, setMonth] = useState(() => startOfMonth(fromDate))
 
+  // 'start': naechster Klick beginnt einen neuen Bereich (setzt Von=Bis=geklicktes Datum).
+  // 'end': ein Von wurde eben gesetzt, naechster Klick legt das Bis fest (oder verschiebt
+  // das Von, falls vor dem aktuellen Von geklickt wird).
+  const [rangeStep, setRangeStep] = useState<'start' | 'end'>('start')
+
   const selected: DateRange = { from: fromDate, to: toDate }
 
   const handleDayClick = (day: Date) => {
     const clickedIso = toIso(day)
 
-    // Ausserhalb des aktuellen Bereichs geklickt: einfach den jeweiligen Rand erweitern.
-    if (day < fromDate) {
-      onChange(clickedIso, to)
-      return
-    }
-    if (day > toDate) {
-      onChange(from, clickedIso)
+    if (rangeStep === 'start') {
+      onChange(clickedIso, clickedIso)
+      setRangeStep('end')
       return
     }
 
-    // Klick liegt innerhalb (oder genau auf einem Rand) des aktuellen Bereichs: den naeher
-    // liegenden Rand auf das geklickte Datum ziehen, statt einen neuen Bereich zu starten.
-    const distToStart = day.getTime() - fromDate.getTime()
-    const distToEnd = toDate.getTime() - day.getTime()
-    if (distToEnd <= distToStart) {
-      onChange(from, clickedIso)
-    } else {
-      onChange(clickedIso, to)
+    if (day < fromDate) {
+      onChange(clickedIso, clickedIso)
+      return
     }
+
+    onChange(from, clickedIso)
+    setRangeStep('start')
   }
 
   return (
