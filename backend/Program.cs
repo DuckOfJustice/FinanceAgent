@@ -1,4 +1,5 @@
 using FinanceDuck.Api;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -10,6 +11,11 @@ if (args is ["--selftest-camt053"])
 if (args is ["--selftest-categorization"])
 {
     CategorizationServiceSelfTest.Run();
+    return;
+}
+if (args is ["--selftest-import-dedup"])
+{
+    await ImportDedupSelfTestAsync();
     return;
 }
 
@@ -169,7 +175,14 @@ async Task<int> ImportTransactionsAsync(List<BankTransaction> transactions, Cate
     var imported = 0;
     foreach (var tx in transactions)
     {
-        if (await db.Transactions.AnyAsync(t => t.ExternalId == tx.ExternalId)) continue;
+        // ExternalId allein reicht nicht: EnableBanking (/api/refresh) und ein CAMT.053-Import
+        // vergeben fuer dieselbe reale Buchung unterschiedliche Referenzen (API-eigene
+        // Transaktions-ID vs. AcctSvcrRef der Bank). Bei ueberlappenden Zeitraeumen aus beiden
+        // Quellen faellt hier daher zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck.
+        var isDuplicate = await db.Transactions.AnyAsync(t =>
+            t.ExternalId == tx.ExternalId ||
+            (t.BookingDate == tx.BookingDate && t.Amount == tx.Amount && t.Purpose == tx.Purpose));
+        if (isDuplicate) continue;
 
         var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose, tx.Amount);
         db.Transactions.Add(new StoredTransaction
@@ -185,6 +198,42 @@ async Task<int> ImportTransactionsAsync(List<BankTransaction> transactions, Cate
     }
     await db.SaveChangesAsync();
     return imported;
+}
+
+// ponytail: kein Testprojekt im Repo fuer dieses Ein-Personen-Tool - Assert-Selbsttest statt
+// xUnit-Setup, mit einer echten (fluechtigen) Sqlite-In-Memory-DB. Aufruf:
+// `dotnet run -- --selftest-import-dedup`.
+async Task ImportDedupSelfTestAsync()
+{
+    using var connection = new SqliteConnection("Data Source=:memory:");
+    connection.Open();
+    var options = new DbContextOptionsBuilder<FinanceDbContext>().UseSqlite(connection).Options;
+    using var testDb = new FinanceDbContext(options);
+    testDb.Database.EnsureCreated();
+    var testCategorizer = new CategorizationService(testDb);
+
+    // Quelle 1: EnableBanking-Refresh legt eine Buchung mit API-eigener ExternalId an.
+    var enableBankingTx = new BankTransaction("eb-tx-123", new DateOnly(2025, 9, 15), -49.99m, "Testhaendler", "Testkauf");
+    var imported1 = await ImportTransactionsAsync([enableBankingTx], testCategorizer, testDb);
+    SelfTestAssert(imported1 == 1, $"erster Import: erwartet 1, war {imported1}");
+
+    // Quelle 2: CAMT-Import derselben realen Buchung mit der AcctSvcrRef der Bank - andere
+    // ExternalId, aber gleiches Datum/Betrag/Verwendungszweck -> muss als Duplikat erkannt werden.
+    var camtTx = new BankTransaction("camt-acctsvcrref-456", new DateOnly(2025, 9, 15), -49.99m, "Testhaendler", "Testkauf");
+    var imported2 = await ImportTransactionsAsync([camtTx], testCategorizer, testDb);
+    SelfTestAssert(imported2 == 0, $"zweiter Import (Duplikat ueber Quellen hinweg): erwartet 0, war {imported2}");
+
+    // Andere Buchung (abweichender Betrag) am selben Tag mit demselben Haendler darf nicht uebersprungen werden.
+    var distinctTx = new BankTransaction("camt-acctsvcrref-789", new DateOnly(2025, 9, 15), -12.00m, "Testhaendler", "Testkauf");
+    var imported3 = await ImportTransactionsAsync([distinctTx], testCategorizer, testDb);
+    SelfTestAssert(imported3 == 1, $"echte andere Buchung: erwartet 1, war {imported3}");
+
+    Console.WriteLine("Import-Dedup self-test: OK");
+}
+
+void SelfTestAssert(bool condition, string message)
+{
+    if (!condition) throw new Exception($"Import-Dedup self-test FAILED: {message}");
 }
 
 // Kategorisiert bereits gespeicherte Buchungen neu (z.B. nach Anpassung von
