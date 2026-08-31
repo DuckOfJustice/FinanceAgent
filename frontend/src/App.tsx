@@ -39,17 +39,21 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importLoading, setImportLoading] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
+  type SkippedEntry = { bookingDate: string; amount: number; purpose: string; matchedBy: 'externalId' | 'content'; existingId: number }
+  const [importSkipped, setImportSkipped] = useState<SkippedEntry[]>([])
 
   const importCamt053 = async (files: File[]) => {
     setImportLoading(true)
     setImportMessage(null)
+    setImportSkipped([])
     const body = new FormData()
     for (const file of files) body.append('files', file)
     const res = await fetch('/api/import/camt053', { method: 'POST', body })
     if (res.ok) {
-      const { imported, total, errors } = await res.json()
+      const { imported, total, errors, skipped } = await res.json()
       const errorSuffix = errors.length > 0 ? ` (${errors.length} Datei(en) fehlgeschlagen: ${errors.map((e: { file: string }) => e.file).join(', ')})` : ''
       setImportMessage(`${imported} von ${total} Buchungen importiert.${errorSuffix}`)
+      setImportSkipped(skipped ?? [])
       setRefreshToken(t => t + 1)
     } else {
       setImportMessage(await errorMessage(res, 'Fehler beim Import.'))
@@ -101,6 +105,15 @@ export default function App() {
           </nav>
         </div>
         {importMessage && <p className="status-text">{importMessage}</p>}
+        {importSkipped.length > 0 && (
+          <ul className="status-text" style={{ margin: '4px 0 0', paddingLeft: '18px' }}>
+            {importSkipped.map((s, i) => (
+              <li key={i}>
+                {s.bookingDate} · {s.amount.toFixed(2)} € · {s.purpose} — {s.matchedBy === 'externalId' ? 'gleiche Referenz' : 'gleiches Datum/Betrag/Zweck'} wie Buchung #{s.existingId}
+              </li>
+            ))}
+          </ul>
+        )}
       </header>
 
       <main className="app-main">

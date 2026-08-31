@@ -134,7 +134,7 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
         return Results.Json(new { error = $"Zugriff blockiert: {ex.Message}" }, statusCode: 429);
     }
 
-    var imported = await ImportTransactionsAsync(transactions, categorizer, db);
+    var (imported, _) = await ImportTransactionsAsync(transactions, categorizer, db);
     return Results.Ok(new { imported });
 });
 
@@ -148,6 +148,7 @@ app.MapPost("/api/import/camt053", async (IFormFileCollection files, Categorizat
     var imported = 0;
     var total = 0;
     var errors = new List<object>();
+    var skipped = new List<object>();
 
     foreach (var file in files)
     {
@@ -164,25 +165,39 @@ app.MapPost("/api/import/camt053", async (IFormFileCollection files, Categorizat
         }
 
         total += transactions.Count;
-        imported += await ImportTransactionsAsync(transactions, categorizer, db);
+        var (fileImported, fileSkipped) = await ImportTransactionsAsync(transactions, categorizer, db);
+        imported += fileImported;
+        skipped.AddRange(fileSkipped);
     }
 
-    return Results.Ok(new { imported, total, errors });
+    return Results.Ok(new { imported, total, errors, skipped });
 }).DisableAntiforgery(); // Ein-Personen-Tool ohne Cookie-Auth - kein CSRF-Kontext, den es zu schuetzen gaebe.
 
-async Task<int> ImportTransactionsAsync(List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
+async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
 {
     var imported = 0;
+    var skipped = new List<object>();
     foreach (var tx in transactions)
     {
         // ExternalId allein reicht nicht: EnableBanking (/api/refresh) und ein CAMT.053-Import
         // vergeben fuer dieselbe reale Buchung unterschiedliche Referenzen (API-eigene
         // Transaktions-ID vs. AcctSvcrRef der Bank). Bei ueberlappenden Zeitraeumen aus beiden
-        // Quellen faellt hier daher zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck.
-        var isDuplicate = await db.Transactions.AnyAsync(t =>
-            t.ExternalId == tx.ExternalId ||
-            (t.BookingDate == tx.BookingDate && t.Amount == tx.Amount && t.Purpose == tx.Purpose));
-        if (isDuplicate) continue;
+        // Quellen faellt hier daher zusaetzlich auf Datum+Betrag+Verwendungszweck zurueck - dabei
+        // wird der Match-Grund mitgeloggt, um einen echten Doppel-Eintrag vom seltenen Fall zweier
+        // wirklich verschiedener Buchungen mit zufaellig identischem Datum/Betrag/Zweck zu unterscheiden.
+        var existingById = await db.Transactions.FirstOrDefaultAsync(t => t.ExternalId == tx.ExternalId);
+        if (existingById is not null)
+        {
+            skipped.Add(new { tx.BookingDate, tx.Amount, tx.Purpose, matchedBy = "externalId", existingId = existingById.Id });
+            continue;
+        }
+        var existingByContent = await db.Transactions.FirstOrDefaultAsync(t =>
+            t.BookingDate == tx.BookingDate && t.Amount == tx.Amount && t.Purpose == tx.Purpose);
+        if (existingByContent is not null)
+        {
+            skipped.Add(new { tx.BookingDate, tx.Amount, tx.Purpose, matchedBy = "content", existingId = existingByContent.Id, existingExternalId = existingByContent.ExternalId, newExternalId = tx.ExternalId });
+            continue;
+        }
 
         var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose, tx.Amount);
         db.Transactions.Add(new StoredTransaction
@@ -194,10 +209,13 @@ async Task<int> ImportTransactionsAsync(List<BankTransaction> transactions, Cate
             Purpose = tx.Purpose,
             Category = category
         });
+        // Pro Eintrag statt einmal am Ende speichern: die Duplikat-Abfragen oben laufen gegen die
+        // DB, wuerden also einen bereits in DIESEM Batch verarbeiteten Eintrag sonst nicht sehen
+        // (z.B. wenn eine Datei versehentlich denselben Ntry zweimal enthaelt).
+        await db.SaveChangesAsync();
         imported++;
     }
-    await db.SaveChangesAsync();
-    return imported;
+    return (imported, skipped);
 }
 
 // ponytail: kein Testprojekt im Repo fuer dieses Ein-Personen-Tool - Assert-Selbsttest statt
@@ -214,19 +232,19 @@ async Task ImportDedupSelfTestAsync()
 
     // Quelle 1: EnableBanking-Refresh legt eine Buchung mit API-eigener ExternalId an.
     var enableBankingTx = new BankTransaction("eb-tx-123", new DateOnly(2025, 9, 15), -49.99m, "Testhaendler", "Testkauf");
-    var imported1 = await ImportTransactionsAsync([enableBankingTx], testCategorizer, testDb);
-    SelfTestAssert(imported1 == 1, $"erster Import: erwartet 1, war {imported1}");
+    var (imported1, skipped1) = await ImportTransactionsAsync([enableBankingTx], testCategorizer, testDb);
+    SelfTestAssert(imported1 == 1 && skipped1.Count == 0, $"erster Import: erwartet 1/0, war {imported1}/{skipped1.Count}");
 
     // Quelle 2: CAMT-Import derselben realen Buchung mit der AcctSvcrRef der Bank - andere
     // ExternalId, aber gleiches Datum/Betrag/Verwendungszweck -> muss als Duplikat erkannt werden.
     var camtTx = new BankTransaction("camt-acctsvcrref-456", new DateOnly(2025, 9, 15), -49.99m, "Testhaendler", "Testkauf");
-    var imported2 = await ImportTransactionsAsync([camtTx], testCategorizer, testDb);
-    SelfTestAssert(imported2 == 0, $"zweiter Import (Duplikat ueber Quellen hinweg): erwartet 0, war {imported2}");
+    var (imported2, skipped2) = await ImportTransactionsAsync([camtTx], testCategorizer, testDb);
+    SelfTestAssert(imported2 == 0 && skipped2.Count == 1, $"zweiter Import (Duplikat ueber Quellen hinweg): erwartet 0/1, war {imported2}/{skipped2.Count}");
 
     // Andere Buchung (abweichender Betrag) am selben Tag mit demselben Haendler darf nicht uebersprungen werden.
     var distinctTx = new BankTransaction("camt-acctsvcrref-789", new DateOnly(2025, 9, 15), -12.00m, "Testhaendler", "Testkauf");
-    var imported3 = await ImportTransactionsAsync([distinctTx], testCategorizer, testDb);
-    SelfTestAssert(imported3 == 1, $"echte andere Buchung: erwartet 1, war {imported3}");
+    var (imported3, skipped3) = await ImportTransactionsAsync([distinctTx], testCategorizer, testDb);
+    SelfTestAssert(imported3 == 1 && skipped3.Count == 0, $"echte andere Buchung: erwartet 1/0, war {imported3}/{skipped3.Count}");
 
     Console.WriteLine("Import-Dedup self-test: OK");
 }
