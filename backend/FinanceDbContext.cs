@@ -19,6 +19,10 @@ public sealed class Category
 {
     public int Id { get; set; }
     public required string Name { get; set; }
+    // Slot-Key aus der Frontend-Farbpalette (z.B. "miete"), keine CSS-Var/Hexfarbe -
+    // Server validiert nur gegen CategoryColors.Palette. Null = alte Kategorie, Frontend
+    // faellt dann auf den bisherigen Hash-basierten Fallback zurueck.
+    public string? Color { get; set; }
 }
 
 // Kein EF-Fremdschluessel auf Category - Loeschen einer Kategorie raeumt zugehoerige

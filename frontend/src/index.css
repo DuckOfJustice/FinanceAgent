@@ -24,8 +24,9 @@
   --cat-stromgas: #c9a227;
   --cat-vertraege: #5c6bc0;
 
-  /* Verlauf-Chart: eigenstaendige Akzentfarbe fuer den Saldo, getrennt von den
-     Kategorie-Farben, damit sie in keinem Kontext etwas anderes suggeriert. */
+  /* Primaere Akzentfarbe der App (Auswahl-Zustaende, Fokus-Ringe, primaere Buttons) -
+     eigenstaendig, getrennt von den Kategorie-Farben, damit sie in keinem Kontext etwas
+     anderes suggeriert. */
   --chart-balance: #2563eb;
 
   /* Status-Palette - eigenstaendig, nie mit kategorialen Farben teilen */
@@ -484,19 +485,19 @@ button:focus-visible,
   min-width: 0;
 }
 
-/* Ente/Euro dezent als Icon-Badge statt grosses freistehendes Emoji neben dem
-   Namen - wirkt als Markenzeichen, nicht als Spielerei. */
+/* Eigenes Icon.ico (Ente) als Badge statt Emoji-Mix - wirkt als echtes Markenzeichen statt
+   Spielerei. object-fit: contain, damit das quadratische Icon nicht beschnitten wird. */
 .app-logo-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
+  padding: 5px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--chart-balance) 12%, var(--surface-page));
-  font-size: 1.05rem;
-  line-height: 1;
   flex-shrink: 0;
+  object-fit: contain;
 }
 
 .app-name {
@@ -586,14 +587,11 @@ button:focus-visible,
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
   background: var(--surface-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: var(--shadow-card);
-  padding: 0.75rem;
+  padding: 0.85rem;
   z-index: 15;
 }
 
@@ -609,8 +607,134 @@ button:focus-visible,
   white-space: nowrap;
 }
 
-.field-compact input {
-  width: 138px;
+/* Zwei-Monats-Kalender fuer "Von/Bis" - ersetzt zwei native <input type="date">, deren
+   Kalender-Overlay sich nicht ins dunkle Theme einfuegen laesst. */
+.range-calendar {
+  max-width: calc(100vw - 2rem);
+}
+
+.range-calendar-months {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.range-calendar-month {
+  width: 208px;
+}
+
+.range-calendar-month-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.range-calendar-nav {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 6px;
+}
+
+.range-calendar-nav:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink-primary) 8%, transparent);
+  color: var(--ink-primary);
+}
+
+.range-calendar-nav-spacer {
+  width: 24px;
+  height: 24px;
+}
+
+.range-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 0.15rem;
+}
+
+.range-calendar-weekdays span {
+  text-align: center;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.range-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.range-calendar-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-calendar-cell.is-empty {
+  cursor: default;
+}
+
+.range-calendar-cell:not(.is-empty):hover {
+  background: color-mix(in srgb, var(--ink-primary) 8%, transparent);
+}
+
+.range-calendar-cell.is-in-range {
+  background: color-mix(in srgb, var(--chart-balance) 16%, transparent);
+  border-radius: 0;
+}
+
+.range-calendar-cell.is-today {
+  box-shadow: 0 0 0 1px var(--border) inset;
+}
+
+.range-calendar-cell.is-selected {
+  background: var(--chart-balance);
+  color: #fff;
+  font-weight: 600;
+}
+
+.range-calendar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.range-calendar-summary {
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.range-calendar-done {
+  flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  .range-calendar-months {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .range-calendar-month {
+    width: 100%;
+  }
 }
 
 
@@ -698,6 +822,62 @@ button:focus-visible,
   max-height: min(720px, calc(100vh - 3rem));
 }
 
+/* Ersetzt window.confirm() (Kategorie/Regel loeschen, "als Regel merken?") - eigenes <dialog>
+   im selben Look wie die anderen Modals statt des unstylbaren System-Popups. */
+.confirm-modal {
+  width: min(400px, calc(100vw - 2rem));
+  max-height: none;
+}
+
+.confirm-modal-inner {
+  gap: 0.85rem;
+}
+
+.confirm-modal-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.confirm-modal-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.15rem;
+}
+
+.confirm-modal-primary,
+.confirm-modal-danger {
+  color: #fff;
+}
+
+.confirm-modal-primary {
+  background: var(--chart-balance);
+  border-color: var(--chart-balance);
+}
+
+.confirm-modal-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--chart-balance) 85%, black);
+  border-color: color-mix(in srgb, var(--chart-balance) 85%, black);
+}
+
+.confirm-modal-danger {
+  background: var(--status-critical);
+  border-color: var(--status-critical);
+}
+
+.confirm-modal-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-critical) 85%, black);
+  border-color: color-mix(in srgb, var(--status-critical) 85%, black);
+}
+
 .icon-button {
   width: 30px;
   height: 30px;
@@ -776,6 +956,70 @@ button:focus-visible,
   flex-shrink: 0;
 }
 
+.category-modal-count {
+  color: var(--ink-muted);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* Suchfeld ueber der Liste - erst ab ein paar Eintraegen sichtbar (siehe JSX),
+   damit es bei wenigen Kategorien/Regeln nicht unnoetig Platz wegnimmt. */
+.category-search-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--ink-muted);
+}
+
+.category-search-wrap svg {
+  position: absolute;
+  left: 0.65rem;
+  pointer-events: none;
+}
+
+.category-search {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 0.4rem 0.6rem 0.4rem 2rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--ink-primary);
+}
+
+.category-search:focus-visible {
+  outline: 2px solid var(--chart-balance);
+  outline-offset: 1px;
+}
+
+/* Gruppenkopf in "Regeln verwalten": macht "was gehoert zu Kategorie X" auf
+   einen Blick sichtbar, statt es aus einem Badge pro Zeile ablesen zu muessen. */
+.rule-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.35rem 0.2rem;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rule-group-header:first-child {
+  padding-top: 0.1rem;
+}
+
+.rule-group-count {
+  margin-left: auto;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .category-edit-input {
   flex: 1;
   min-width: 0;
@@ -791,6 +1035,45 @@ button:focus-visible,
 .category-edit-input:focus-visible {
   outline: 2px solid var(--chart-balance);
   outline-offset: 1px;
+}
+
+/* Farb-Picker im Bearbeiten-Dialog von "Kategorien verwalten" - kompakte Swatch-Reihe statt
+   Dropdown, damit man alle Optionen auf einen Blick vergleichen kann. */
+.category-color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.15rem 1.4rem;
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--border) inset;
+  cursor: pointer;
+  transition: transform 0.1s ease-out, box-shadow 0.15s ease-out;
+}
+
+.color-swatch:hover:not(:disabled) {
+  transform: scale(1.12);
+}
+
+.color-swatch.is-selected {
+  border-color: var(--surface-card);
+  box-shadow: 0 0 0 2px var(--ink-primary);
+}
+
+.color-swatch:focus-visible {
+  outline: 2px solid var(--chart-balance);
+  outline-offset: 2px;
+}
+
+.color-swatch:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .category-row-error {
@@ -885,8 +1168,5 @@ button:focus-visible,
   }
   .app-nav-action {
     padding: 0.4rem;
-  }
-  .field-compact input {
-    width: 118px;
   }
 }
