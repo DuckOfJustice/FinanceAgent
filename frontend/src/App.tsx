@@ -3,6 +3,7 @@ import AuthGate from './AuthGate'
 import MonthlyDashboard from './MonthlyDashboard'
 import CategoryManager from './CategoryManager'
 import RuleManager from './RuleManager'
+import AdminPanel from './AdminPanel'
 
 const iconProps = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -41,6 +42,7 @@ export default function App() {
 
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [ruleManagerOpen, setRuleManagerOpen] = useState(false)
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -106,6 +108,12 @@ export default function App() {
               <span>Regeln verwalten</span>
             </button>
 
+            {user.isAdmin && (
+              <button type="button" className="app-nav-action" onClick={() => setAdminPanelOpen(true)}>
+                <span>Nutzer verwalten</span>
+              </button>
+            )}
+
             <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
               <IconUpload />
               <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
@@ -164,6 +172,8 @@ export default function App() {
       />
 
       <RuleManager open={ruleManagerOpen} onClose={() => setRuleManagerOpen(false)} />
+
+      <AdminPanel open={adminPanelOpen} onClose={() => setAdminPanelOpen(false)} />
     </div>
   )
 }
