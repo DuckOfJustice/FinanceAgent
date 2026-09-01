@@ -104,7 +104,10 @@ using (var scope = app.Services.CreateScope())
             "Name" TEXT NOT NULL
         )
         """);
-    db.Database.ExecuteSqlRaw("""CREATE UNIQUE INDEX IF NOT EXISTS "IX_Categories_Name" ON "Categories" ("Name")""");
+    // Der urspruengliche einspaltige Unique-Index (IX_Categories_Name) wird weiter unten
+    // (nach der UserId-Migration) durch den zusammengesetzten (UserId, Name)-Index ersetzt -
+    // ihn hier nochmal anzulegen wuerde bei jedem Neustart fehlschlagen, sobald zwei Nutzer
+    // denselben Kategorienamen verwenden (by design seit Multi-User).
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS "Rules" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_Rules" PRIMARY KEY AUTOINCREMENT,
