@@ -1144,3 +1144,148 @@ button:focus-visible,
     padding: 0.4rem;
   }
 }
+
+/* --- Mobile: Control-Bar, Regeln-Formular, Buchungsliste als Karten (Handy-Layout) --- */
+@media (max-width: 640px) {
+  /* Filterleiste/Aktionen: gestapelt statt gemischt umbrechend - jede Zeile hat einen
+     klaren Zweck (Filter oben, Aktionen unten als volle-Breite-Buttons). */
+  .control-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+  }
+
+  .control-bar-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .field {
+    width: 100%;
+  }
+
+  .field select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .date-popover {
+    width: 100%;
+  }
+
+  .date-popover-trigger {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .control-bar-actions {
+    flex-direction: column;
+    align-items: stretch;
+    margin-left: 0;
+    width: 100%;
+    gap: 0.5rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .control-bar-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Regeln verwalten: Textfeld war neben Kategorie-Select und "Hinzufügen"-Button auf
+     schmalen Screens fast unsichtbar schmal (beide Nachbarn hatten flex-shrink: 0).
+     Muster-Feld bekommt jetzt eine eigene volle Zeile. */
+  .category-add-row {
+    flex-wrap: wrap;
+  }
+
+  .category-add-row input {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .category-add-row select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .category-add-row button {
+    flex: 0 0 auto;
+  }
+
+  /* Buchungsliste: aus der 5-Spalten-Tabelle (die auf schmalen Screens Gegenpartei und
+     Verwendungszweck praktisch auf 0px zusammengequetscht hat) wird pro Buchung eine
+     kompakte Karte - alle Infos bleiben sichtbar statt abgeschnitten zu werden. */
+  .tx-table-wrap table,
+  .tx-table-wrap thead,
+  .tx-table-wrap tbody,
+  .tx-table-wrap tr,
+  .tx-table-wrap td {
+    display: block;
+    width: auto;
+  }
+
+  .tx-table-wrap thead {
+    display: none;
+  }
+
+  .tx-table-wrap tbody tr {
+    display: grid;
+    grid-template-columns: 56px 1fr 128px;
+    grid-template-areas:
+      "date counterparty amount"
+      "date purpose category";
+    column-gap: 0.6rem;
+    row-gap: 0.25rem;
+    padding: 0.75rem 0.1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tx-table-wrap tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .tx-table-wrap tbody tr:nth-child(even) {
+    background: none;
+  }
+
+  .tx-table-wrap tbody td {
+    padding: 0;
+    border-bottom: none;
+  }
+
+  .tx-table-wrap tbody td:nth-child(1) {
+    grid-area: date;
+    align-self: start;
+    font-size: 12px;
+    padding-top: 0.15rem;
+  }
+
+  .tx-table-wrap tbody td:nth-child(2) {
+    grid-area: counterparty;
+    font-weight: 600;
+  }
+
+  .tx-table-wrap tbody td:nth-child(3) {
+    grid-area: purpose;
+    font-size: 12px;
+  }
+
+  .tx-table-wrap tbody td:nth-child(4) {
+    grid-area: category;
+    align-self: center;
+  }
+
+  .tx-table-wrap tbody td:nth-child(5) {
+    grid-area: amount;
+    align-self: start;
+  }
+
+  .tx-table-wrap .tx-category-select {
+    width: 100%;
+    border-color: var(--border);
+    background: var(--surface-page);
+  }
+}
