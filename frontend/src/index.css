@@ -1289,3 +1289,34 @@ button:focus-visible,
     background: var(--surface-page);
   }
 }
+
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+}
+.auth-title {
+  margin: 0 0 8px;
+  text-align: center;
+}
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+}
+.auth-tabs button {
+  flex: 1;
+}
+.auth-tabs button.is-active {
+  font-weight: 600;
+}

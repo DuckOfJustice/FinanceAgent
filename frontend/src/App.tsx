@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import AuthGate from './AuthGate'
 import MonthlyDashboard from './MonthlyDashboard'
 import CategoryManager from './CategoryManager'
 import RuleManager from './RuleManager'
@@ -32,6 +33,15 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 }
 
 export default function App() {
+  const [user, setUser] = useState<{ username: string; isAdmin: boolean } | null | undefined>(undefined)
+
+  useEffect(() => {
+    fetch('/api/auth/me').then(res => (res.ok ? res.json() : null)).then(setUser)
+  }, [])
+
+  if (user === undefined) return null
+  if (user === null) return <AuthGate onAuthenticated={setUser} />
+
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [ruleManagerOpen, setRuleManagerOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
@@ -114,6 +124,10 @@ export default function App() {
                 if (files.length > 0) importCamt053(files)
               }}
             />
+
+            <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
+              <span>{user.username} · Abmelden</span>
+            </button>
           </nav>
         </div>
         {importMessage && <p className="status-text">{importMessage}</p>}
