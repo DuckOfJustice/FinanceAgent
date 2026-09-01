@@ -39,9 +39,6 @@ export default function App() {
     fetch('/api/auth/me').then(res => (res.ok ? res.json() : null)).then(setUser)
   }, [])
 
-  if (user === undefined) return null
-  if (user === null) return <AuthGate onAuthenticated={setUser} />
-
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [ruleManagerOpen, setRuleManagerOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
@@ -82,6 +79,9 @@ export default function App() {
     }
     setImportLoading(false)
   }
+
+  if (user === undefined) return null
+  if (user === null) return <AuthGate onAuthenticated={setUser} />
 
   return (
     <div className="app-shell">
