@@ -130,6 +130,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseFinanceAuth();
 app.MapAuthEndpoints();
+app.MapAdminEndpoints();
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.
 app.MapGet("/api/institutions", async (EnableBankingClient bank) =>

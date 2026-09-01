@@ -67,3 +67,41 @@ public static class AuthEndpoints
 }
 
 public record AuthRequest(string? Username, string? Password);
+public record EnableBankingConfigRequest(string? AppId, string? PrivateKeyPem, string? AspspName, string? AspspCountry, string? AccountIban);
+
+public static class AdminEndpoints
+{
+    public static void MapAdminEndpoints(this WebApplication app)
+    {
+        var admin = app.MapGroup("/api/admin").RequireAuthorization("Admin");
+
+        admin.MapGet("/users", async (FinanceDbContext db) =>
+            Results.Ok(await db.Users
+                .GroupJoin(db.EnableBankingConfigs, u => u.Id, c => c.UserId, (u, cs) => new { u, cs })
+                .Select(x => new
+                {
+                    x.u.Id,
+                    x.u.Username,
+                    x.u.IsAdmin,
+                    HasBankConfig = x.cs.Any(c => c.AccountIban != null)
+                })
+                .OrderBy(x => x.Username)
+                .ToListAsync()));
+
+        admin.MapPut("/users/{id:int}/enablebanking-config", async (int id, EnableBankingConfigRequest body, FinanceDbContext db, SecretProtector protector) =>
+        {
+            if (!await db.Users.AnyAsync(u => u.Id == id)) return Results.NotFound();
+
+            var config = await db.EnableBankingConfigs.FindAsync(id) ?? new EnableBankingConfig { UserId = id };
+            config.AppId = body.AppId;
+            config.PrivateKeyPem = string.IsNullOrEmpty(body.PrivateKeyPem) ? config.PrivateKeyPem : protector.Protect(body.PrivateKeyPem);
+            config.AspspName = body.AspspName;
+            config.AspspCountry = body.AspspCountry;
+            config.AccountIban = body.AccountIban;
+            if (db.Entry(config).State == EntityState.Detached) db.EnableBankingConfigs.Add(config);
+
+            await db.SaveChangesAsync();
+            return Results.Ok();
+        });
+    }
+}
