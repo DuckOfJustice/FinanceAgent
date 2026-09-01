@@ -1511,8 +1511,10 @@ button:focus-visible,
 
 .admin-row-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.7rem;
+  justify-content: flex-end;
+  gap: 0.5rem 0.7rem;
   flex-shrink: 0;
   margin-left: auto;
 }
