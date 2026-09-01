@@ -1161,6 +1161,19 @@ button:focus-visible,
   .app-tagline {
     display: none;
   }
+  /* Ohne Umbruch wurde .app-nav-groups im einzeiligen .app-header-inner einfach
+     zusammengequetscht/abgeschnitten statt sichtbar zu bleiben - auf schmalen
+     Screens fehlten dadurch Buttons komplett statt nur ihre Beschriftung zu
+     verlieren. Kopfzeile bricht jetzt zweizeilig um: Marke oben, Nav-Gruppen
+     darunter in voller Breite. */
+  .app-header-inner {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+  .app-nav-groups {
+    width: 100%;
+    justify-content: flex-end;
+  }
   .app-nav-action span {
     display: none;
   }

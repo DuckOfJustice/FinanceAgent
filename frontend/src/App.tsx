@@ -36,6 +36,23 @@ const IconLink = () => (
   </svg>
 )
 
+const IconUsers = () => (
+  <svg {...iconProps}>
+    <path d="M17 21v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1" />
+    <circle cx="10" cy="7" r="3.2" />
+    <path d="M22 21v-1a3.8 3.8 0 0 0-2.7-3.65" />
+    <path d="M16 3.3a3.8 3.8 0 0 1 0 7.1" />
+  </svg>
+)
+
+const IconLogout = () => (
+  <svg {...iconProps}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="M16 17l5-5-5-5" />
+    <path d="M21 12H9" />
+  </svg>
+)
+
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   const text = await res.text().catch(() => '')
   return text || fallback
@@ -166,6 +183,7 @@ export default function App() {
             <nav className="app-nav app-nav-group-account" aria-label="Konto">
               {user.isAdmin && (
                 <button type="button" className="app-nav-action" onClick={() => setAdminPanelOpen(true)}>
+                  <IconUsers />
                   <span>Nutzer verwalten</span>
                 </button>
               )}
@@ -176,6 +194,7 @@ export default function App() {
               </button>
 
               <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
+                <IconLogout />
                 <span>{user.username} · Abmelden</span>
               </button>
             </nav>
