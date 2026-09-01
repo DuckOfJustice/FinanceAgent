@@ -6,7 +6,7 @@ product
 
 ## Users
 
-A single user (the developer/operator) reviewing their own bank transactions once a month, locally, on their own machine. No other users, no accounts, no auth.
+Multiple users (the developer/operator and friends/family they've invited), each reviewing their own bank transactions once a month on a shared instance. Each user has their own account, own categories/rules/transactions, and logs in with a username/password; an admin panel lets the operator manage per-user bank-sync configuration.
 
 ## Product Purpose
 

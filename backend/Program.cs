@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using System.Text.Json;
 
 if (args is ["--selftest-camt053"])
 {
@@ -36,6 +35,18 @@ if (args is ["--selftest-migrate-user"])
     await MigrationSelfTestAsync();
     return;
 }
+// Cutover-Reihenfolge fuer bestehende Ein-Personen-Installationen (WICHTIG, sonst verschwinden
+// Daten): die ALTER TABLE-Patches oben lassen Zeilen einer bereits existierenden Standalone-DB
+// mit UserId = NULL zurueck, und da jede Query nach UserId == <id> filtert, sind NULL-Zeilen
+// danach fuer immer unsichtbar (NULL == irgendeine Id ist nie wahr) - es gibt keinen Weg zurueck
+// ausser erneut --migrate-user gegen eine SEPARATE Kopie der alten DB-Datei laufen zu lassen.
+// 1) Die neue Multi-User-App gegen eine komplett frische/leere data/finance.db starten - NICHT
+//    in-place gegen die bestehende Standalone-DB eines Freundes laufen lassen, auch nicht die
+//    des Admins selbst.
+// 2) Fuer JEDEN Freund (inkl. Admin): dessen alte Standalone-DB + .env als separate Kopie
+//    aufheben und `--migrate-user <alter-db-pfad> <alter-env-pfad> <username> <passwort>` gegen
+//    die neue gemeinsame Instanz laufen lassen.
+// 3) Erst wenn alle Freunde migriert sind, die alten Standalone-Instanzen stilllegen.
 if (args is ["--migrate-user", var oldDbPath, var oldEnvPath, var newUsername, var newPassword])
 {
     var migrationServices = new ServiceCollection()
@@ -366,9 +377,11 @@ async Task ImportDedupSelfTestAsync()
     Console.WriteLine("Import-Dedup self-test: OK");
 }
 
-void SelfTestAssert(bool condition, string message)
+// Suite-Name parametrisiert statt hartcodiert "Import-Dedup" - sonst meldet ein fehlgeschlagener
+// --selftest-migrate-user irrefuehrend "Import-Dedup self-test FAILED".
+void SelfTestAssert(bool condition, string message, string suite = "Import-Dedup")
 {
-    if (!condition) throw new Exception($"Import-Dedup self-test FAILED: {message}");
+    if (!condition) throw new Exception($"{suite} self-test FAILED: {message}");
 }
 
 async Task MigrationSelfTestAsync()
@@ -406,16 +419,16 @@ async Task MigrationSelfTestAsync()
 
         var migratedUser = targetDb.Users.Single(u => u.Username == "migrated-friend");
         var config = targetDb.EnableBankingConfigs.Single(c => c.UserId == migratedUser.Id);
-        SelfTestAssert(config.AccountIban == "DE00OLD", $"war {config.AccountIban}");
+        SelfTestAssert(config.AccountIban == "DE00OLD", $"war {config.AccountIban}", "User-Migration");
 
         var category = targetDb.Categories.Single(c => c.UserId == migratedUser.Id);
-        SelfTestAssert(category.Name == "Miete", $"war {category.Name}");
+        SelfTestAssert(category.Name == "Miete", $"war {category.Name}", "User-Migration");
 
         var rule = targetDb.Rules.Single(r => r.UserId == migratedUser.Id);
-        SelfTestAssert(rule.CategoryId == category.Id, "Rule.CategoryId wurde nicht auf die neue Kategorie-Id remapped");
+        SelfTestAssert(rule.CategoryId == category.Id, "Rule.CategoryId wurde nicht auf die neue Kategorie-Id remapped", "User-Migration");
 
         var transaction = targetDb.Transactions.Single(t => t.UserId == migratedUser.Id);
-        SelfTestAssert(transaction.Category == "Miete", $"war {transaction.Category}");
+        SelfTestAssert(transaction.Category == "Miete", $"war {transaction.Category}", "User-Migration");
 
         Console.WriteLine("User migration self-test: OK");
     }

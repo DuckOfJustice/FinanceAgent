@@ -19,7 +19,10 @@ export default function AdminPanel({ open, onClose }: { open: boolean; onClose: 
   const [error, setError] = useState<string | null>(null)
 
   const loadUsers = () => {
-    fetch('/api/admin/users').then(r => r.json()).then(setUsers)
+    fetch('/api/admin/users').then(r => {
+      if (r.status === 401) { window.location.reload(); return null }
+      return r.json()
+    }).then(list => { if (list) setUsers(list) })
   }
 
   useEffect(() => {

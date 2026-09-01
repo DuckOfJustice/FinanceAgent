@@ -11,22 +11,77 @@ namespace FinanceDuck.Api;
 // noch keine UserId-Spalten, das wuerde EFs generiertes SELECT zum Absturz bringen.
 public static class UserMigration
 {
+    private sealed record OldCategory(int OldId, string Name, string? Color);
+    private sealed record OldRule(string Pattern, int OldCategoryId);
+    private sealed record OldTransaction(string ExternalId, DateOnly BookingDate, decimal Amount, string? CounterpartyName, string Purpose, string Category);
+
     public static async Task RunAsync(string oldDbPath, string oldEnvPath, string username, string password,
         FinanceDbContext targetDb, IPasswordHasher<User> hasher, SecretProtector protector)
     {
+        // EnsureCreated ist idempotent (kein Absturz, wenn das Schema schon existiert) - noetig,
+        // damit dieses CLI auch gegen eine komplett frische data/finance.db laeuft, die die
+        // Web-App noch nie gestartet hat (--migrate-user laesst die Web-App-Startup-Logik aus,
+        // die das Schema sonst anlegt).
+        targetDb.Database.EnsureCreated();
+
+        // Alles, was fehlschlagen kann, VOR dem ersten Schreibzugriff lesen/validieren - sonst
+        // steht bei einem falschen PrivateKeyPath oder oldDbPath bereits ein halb angelegter User
+        // in der DB, und ein erneuter Versuch scheitert am Unique-Index auf Username.
         var env = ParseEnvFile(oldEnvPath);
+        var privateKeyPath = env.GetValueOrDefault("EnableBanking__PrivateKeyPath");
+        var privateKeyPem = string.IsNullOrEmpty(privateKeyPath) ? null : File.ReadAllText(privateKeyPath);
+
+        using var oldConnection = new SqliteConnection($"Data Source={oldDbPath};Mode=ReadOnly");
+        oldConnection.Open();
+
+        var oldCategories = new List<OldCategory>();
+        using (var cmd = oldConnection.CreateCommand())
+        {
+            cmd.CommandText = """SELECT "Id", "Name", "Color" FROM "Categories" """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                oldCategories.Add(new OldCategory(reader.GetInt32(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
+        }
+
+        var oldRules = new List<OldRule>();
+        using (var cmd = oldConnection.CreateCommand())
+        {
+            cmd.CommandText = """SELECT "Pattern", "CategoryId" FROM "Rules" """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                oldRules.Add(new OldRule(reader.GetString(0), reader.GetInt32(1)));
+        }
+
+        var oldTransactions = new List<OldTransaction>();
+        using (var cmd = oldConnection.CreateCommand())
+        {
+            cmd.CommandText = """SELECT "ExternalId", "BookingDate", "Amount", "CounterpartyName", "Purpose", "Category" FROM "Transactions" """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                oldTransactions.Add(new OldTransaction(
+                    reader.GetString(0),
+                    DateOnly.Parse(reader.GetString(1)),
+                    reader.GetDecimal(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5)));
+        }
+
+        // Ab hier nur noch Schreiben - alles was schiefgehen konnte, ist bereits oben passiert.
+        // Eine Transaktion um den gesamten Kopiervorgang, damit ein Fehler mittendrin keinen
+        // halb migrierten Nutzer in der DB zuruecklaesst.
+        await using var transaction = await targetDb.Database.BeginTransactionAsync();
 
         var user = new User { Username = username, PasswordHash = "", CreatedAt = DateTime.UtcNow };
         user.PasswordHash = hasher.HashPassword(user, password);
         targetDb.Users.Add(user);
         await targetDb.SaveChangesAsync();
 
-        var privateKeyPath = env.GetValueOrDefault("EnableBanking__PrivateKeyPath");
         targetDb.EnableBankingConfigs.Add(new EnableBankingConfig
         {
             UserId = user.Id,
             AppId = env.GetValueOrDefault("EnableBanking__AppId"),
-            PrivateKeyPem = string.IsNullOrEmpty(privateKeyPath) ? null : protector.Protect(File.ReadAllText(privateKeyPath)),
+            PrivateKeyPem = privateKeyPem is null ? null : protector.Protect(privateKeyPem),
             AspspName = env.GetValueOrDefault("EnableBanking__AspspName"),
             AspspCountry = env.GetValueOrDefault("EnableBanking__AspspCountry"),
             SessionId = env.TryGetValue("EnableBanking__SessionId", out var sid) && !string.IsNullOrEmpty(sid) ? protector.Protect(sid) : null,
@@ -34,60 +89,42 @@ public static class UserMigration
         });
         await targetDb.SaveChangesAsync();
 
-        using var oldConnection = new SqliteConnection($"Data Source={oldDbPath};Mode=ReadOnly");
-        oldConnection.Open();
-
         var categoryIdMap = new Dictionary<int, int>();
-        using (var cmd = oldConnection.CreateCommand())
+        foreach (var oldCategory in oldCategories)
         {
-            cmd.CommandText = """SELECT "Id", "Name", "Color" FROM "Categories" """;
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                var oldId = reader.GetInt32(0);
-                var category = new Category { Name = reader.GetString(1), Color = reader.IsDBNull(2) ? null : reader.GetString(2), UserId = user.Id };
-                targetDb.Categories.Add(category);
-                await targetDb.SaveChangesAsync();
-                categoryIdMap[oldId] = category.Id;
-            }
+            var category = new Category { Name = oldCategory.Name, Color = oldCategory.Color, UserId = user.Id };
+            targetDb.Categories.Add(category);
+            // Sofort speichern statt am Ende (weiterhin innerhalb derselben Transaktion) - die neue
+            // Id wird fuer das Rule.CategoryId-Remapping unten gebraucht.
+            await targetDb.SaveChangesAsync();
+            categoryIdMap[oldCategory.OldId] = category.Id;
         }
 
-        using (var cmd = oldConnection.CreateCommand())
+        foreach (var oldRule in oldRules)
         {
-            cmd.CommandText = """SELECT "Pattern", "CategoryId" FROM "Rules" """;
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                var oldCategoryId = reader.GetInt32(1);
-                if (!categoryIdMap.TryGetValue(oldCategoryId, out var newCategoryId)) continue;
-                targetDb.Rules.Add(new Rule { Pattern = reader.GetString(0), CategoryId = newCategoryId, UserId = user.Id });
-            }
+            if (!categoryIdMap.TryGetValue(oldRule.OldCategoryId, out var newCategoryId)) continue;
+            targetDb.Rules.Add(new Rule { Pattern = oldRule.Pattern, CategoryId = newCategoryId, UserId = user.Id });
         }
         await targetDb.SaveChangesAsync();
 
-        var transactionCount = 0;
-        using (var cmd = oldConnection.CreateCommand())
+        foreach (var oldTransaction in oldTransactions)
         {
-            cmd.CommandText = """SELECT "ExternalId", "BookingDate", "Amount", "CounterpartyName", "Purpose", "Category" FROM "Transactions" """;
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
+            targetDb.Transactions.Add(new StoredTransaction
             {
-                targetDb.Transactions.Add(new StoredTransaction
-                {
-                    ExternalId = reader.GetString(0),
-                    BookingDate = DateOnly.Parse(reader.GetString(1)),
-                    Amount = reader.GetDecimal(2),
-                    CounterpartyName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    Purpose = reader.GetString(4),
-                    Category = reader.GetString(5),
-                    UserId = user.Id,
-                });
-                transactionCount++;
-            }
+                ExternalId = oldTransaction.ExternalId,
+                BookingDate = oldTransaction.BookingDate,
+                Amount = oldTransaction.Amount,
+                CounterpartyName = oldTransaction.CounterpartyName,
+                Purpose = oldTransaction.Purpose,
+                Category = oldTransaction.Category,
+                UserId = user.Id,
+            });
         }
         await targetDb.SaveChangesAsync();
 
-        Console.WriteLine($"Migriert: Nutzer '{username}' (Id {user.Id}), {categoryIdMap.Count} Kategorien, {transactionCount} Buchungen.");
+        await transaction.CommitAsync();
+
+        Console.WriteLine($"Migriert: Nutzer '{username}' (Id {user.Id}), {categoryIdMap.Count} Kategorien, {oldTransactions.Count} Buchungen.");
     }
 
     private static Dictionary<string, string> ParseEnvFile(string path)

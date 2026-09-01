@@ -59,8 +59,11 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
   const loadCategories = () => {
     setLoading(true)
     fetch('/api/categories')
-      .then(r => r.json())
-      .then((list: Category[]) => setCategories(sortByName(list)))
+      .then(r => {
+        if (r.status === 401) { window.location.reload(); return null }
+        return r.json()
+      })
+      .then((list: Category[] | null) => { if (list) setCategories(sortByName(list)) })
       .finally(() => setLoading(false))
   }
 

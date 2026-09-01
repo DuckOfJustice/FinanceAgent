@@ -86,12 +86,15 @@ public static class AuthEndpoints
         {
             if (!await db.Users.AnyAsync(u => u.Id == id)) return Results.NotFound();
 
+            // Leere Felder behalten den bisherigen Wert statt ihn zu loeschen - das Admin-Panel
+            // prefillt sein Formular nicht mit den gespeicherten Werten (siehe AdminPanel.tsx),
+            // ein Admin der nur ein Feld korrigiert wuerde die uebrigen sonst stillschweigend nullen.
             var config = await db.EnableBankingConfigs.FindAsync(id) ?? new EnableBankingConfig { UserId = id };
-            config.AppId = body.AppId;
+            config.AppId = string.IsNullOrEmpty(body.AppId) ? config.AppId : body.AppId;
             config.PrivateKeyPem = string.IsNullOrEmpty(body.PrivateKeyPem) ? config.PrivateKeyPem : protector.Protect(body.PrivateKeyPem);
-            config.AspspName = body.AspspName;
-            config.AspspCountry = body.AspspCountry;
-            config.AccountIban = body.AccountIban;
+            config.AspspName = string.IsNullOrEmpty(body.AspspName) ? config.AspspName : body.AspspName;
+            config.AspspCountry = string.IsNullOrEmpty(body.AspspCountry) ? config.AspspCountry : body.AspspCountry;
+            config.AccountIban = string.IsNullOrEmpty(body.AccountIban) ? config.AccountIban : body.AccountIban;
             if (db.Entry(config).State == EntityState.Detached) db.EnableBankingConfigs.Add(config);
 
             await db.SaveChangesAsync();

@@ -7,17 +7,21 @@ using System.Text.Json.Serialization;
 
 namespace FinanceDuck.Api;
 
-public sealed class EnableBankingClient(HttpClient http)
+public sealed class EnableBankingClient(HttpClient http, IConfiguration configuration)
 {
     // Einmalig bei der Ersteinrichtung: Link im Browser oeffnen, Volksbank-Login bestaetigen.
     public async Task<string> StartAuthorizationAsync(string appId, string privateKeyPem, string aspspName, string aspspCountry)
     {
         AuthenticateRequest(appId, privateKeyPem);
+        // Konfigurierbar statt hartcodiert: auf einem gemeinsam genutzten Pi zeigt eine feste
+        // "https://localhost:8443/..."-URL auf den Rechner des jeweiligen Browsers, nicht auf den
+        // Server. Default in appsettings.json haelt lokales Dev-Verhalten unveraendert.
+        var redirectUrl = configuration["EnableBanking:RedirectUrl"] ?? "https://localhost:8443/api/consent-callback";
         var res = await http.PostAsJsonAsync("auth", new
         {
             aspsp = new { name = aspspName, country = aspspCountry },
             access = new { valid_until = DateTime.UtcNow.AddDays(90).ToString("o") },
-            redirect_url = "https://localhost:8443/api/consent-callback",
+            redirect_url = redirectUrl,
             state = Guid.NewGuid().ToString("N"),
             psu_type = "personal"
         });

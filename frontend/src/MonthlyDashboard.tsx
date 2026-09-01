@@ -108,8 +108,12 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   const loadSummary = () => {
     setSummaryLoading(true)
     fetch(`/api/summary?from=${from}&to=${to}`)
-      .then(r => r.json())
-      .then((rows: CategorySummary[]) =>
+      .then(r => {
+        if (r.status === 401) { window.location.reload(); return null }
+        return r.json()
+      })
+      .then((rows: CategorySummary[] | null) => {
+        if (!rows) return
         setData([...rows].sort((a, b) => {
           if (a.category === 'Sonstiges') return 1
           if (b.category === 'Sonstiges') return -1
@@ -118,7 +122,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
           if (aPositive !== bPositive) return aPositive ? -1 : 1
           return Math.abs(b.totalAmount) - Math.abs(a.totalAmount)
         }))
-      )
+      })
       .finally(() => setSummaryLoading(false))
   }
 
@@ -131,7 +135,10 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   // Schliessen von "Kategorien verwalten" hier neu laden, falls sich Namen geaendert haben.
   const isFirstRefreshToken = useRef(true)
   const loadCategories = () => {
-    fetch('/api/categories').then(r => r.json()).then(setCategories)
+    fetch('/api/categories').then(r => {
+      if (r.status === 401) { window.location.reload(); return null }
+      return r.json()
+    }).then(list => { if (list) setCategories(list) })
   }
   useEffect(() => {
     loadCategories()
@@ -150,8 +157,11 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       ? `/api/transactions?from=${from}&to=${to}&category=${encodeURIComponent(selectedCategory)}`
       : `/api/transactions?from=${from}&to=${to}`
     return fetch(url)
-      .then(r => r.json())
-      .then(setTransactions)
+      .then(r => {
+        if (r.status === 401) { window.location.reload(); return null }
+        return r.json()
+      })
+      .then(list => { if (list) setTransactions(list) })
       .finally(() => setTransactionsLoading(false))
   }
 

@@ -11,14 +11,24 @@ public static class AuthExtensions
     {
         services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
         services.AddSingleton<SecretProtector>();
-        services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo("data/keys"));
+        // Ohne SetApplicationName leiten WebApplicationBuilder (Web-App) und ein blankes
+        // ServiceCollection (--migrate-user-CLI) unterschiedliche Discriminatoren aus ihrem
+        // jeweiligen Content-Root ab -> unterschiedliche Keys trotz gleichem Keyring-Verzeichnis,
+        // vom CLI-Pfad verschluesselte Secrets waeren fuer die Web-App nicht entschluesselbar.
+        services.AddDataProtection()
+            .SetApplicationName("FinanceDuck")
+            .PersistKeysToFileSystem(new DirectoryInfo("data/keys"));
 
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(options =>
             {
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-                options.Cookie.SameSite = SameSiteMode.Strict;
+                // Lax statt Strict: die Bank leitet den Browser nach dem Consent per Top-Level-GET
+                // auf /api/consent-callback um (Cross-Site-Navigation) - Strict wuerde das Cookie dabei
+                // unterdruecken und den Callback immer mit 401 scheitern lassen. Lax blockt weiterhin
+                // Cross-Site-POST/PUT/DELETE, die DisableAntiforgery-Begruendung bei /api/import/camt053 bleibt also gueltig.
+                options.Cookie.SameSite = SameSiteMode.Lax;
                 options.ExpireTimeSpan = TimeSpan.FromDays(30);
                 options.SlidingExpiration = true;
                 // Minimal API statt MVC-Login-Seite - bei fehlender/abgelaufener Session
