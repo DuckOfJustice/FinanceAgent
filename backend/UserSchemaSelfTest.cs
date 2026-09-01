@@ -31,6 +31,25 @@ public static class UserSchemaSelfTest
         }
         catch (DbUpdateException) { duplicateUsernameThrew = true; }
         Assert(duplicateUsernameThrew, "doppelter Username haette einen Fehler werfen muessen");
+        db.ChangeTracker.Clear();
+
+        var userB = new User { Username = "friend", PasswordHash = "hash", CreatedAt = DateTime.UtcNow };
+        db.Users.Add(userB);
+        db.SaveChanges();
+
+        db.Categories.Add(new Category { Name = "Miete", UserId = user.Id });
+        db.Categories.Add(new Category { Name = "Miete", UserId = userB.Id });
+        db.SaveChanges(); // same name, different users - must succeed
+
+        var duplicateCategoryThrew = false;
+        try
+        {
+            db.Categories.Add(new Category { Name = "Miete", UserId = user.Id });
+            db.SaveChanges();
+        }
+        catch (DbUpdateException) { duplicateCategoryThrew = true; }
+        Assert(duplicateCategoryThrew, "doppelte Kategorie fuer denselben User haette einen Fehler werfen muessen");
+        db.ChangeTracker.Clear();
 
         Console.WriteLine("User schema self-test: OK");
     }

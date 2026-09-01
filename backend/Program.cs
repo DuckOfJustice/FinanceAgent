@@ -105,6 +105,20 @@ using (var scope = app.Services.CreateScope())
             "AccountIban" TEXT
         )
         """);
+
+    foreach (var (table, column) in new[] { ("Transactions", "UserId"), ("Categories", "UserId"), ("Rules", "UserId") })
+    {
+        try
+        {
+            db.Database.ExecuteSqlRaw($"""ALTER TABLE "{table}" ADD COLUMN "{column}" INTEGER""");
+        }
+        catch (SqliteException ex) when (ex.Message.Contains("duplicate column name"))
+        {
+            // Spalte existiert schon.
+        }
+    }
+    db.Database.ExecuteSqlRaw("""DROP INDEX IF EXISTS "IX_Categories_Name" """);
+    db.Database.ExecuteSqlRaw("""CREATE UNIQUE INDEX IF NOT EXISTS "IX_Categories_UserId_Name" ON "Categories" ("UserId", "Name")""");
 }
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.

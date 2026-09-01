@@ -18,7 +18,7 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
         // laeuft in ImportTransactionsAsync ueber ExternalId+Datum+Betrag bzw. Inhalt, nicht ueber
         // eine DB-Constraint. Index bleibt fuer die Lookup-Performance dort erhalten.
         modelBuilder.Entity<StoredTransaction>().HasIndex(t => t.ExternalId);
-        modelBuilder.Entity<Category>().HasIndex(c => c.Name).IsUnique();
+        modelBuilder.Entity<Category>().HasIndex(c => new { c.UserId, c.Name }).IsUnique();
         modelBuilder.Entity<User>().HasIndex(u => u.Username).IsUnique();
         modelBuilder.Entity<EnableBankingConfig>().HasKey(c => c.UserId);
     }
@@ -27,6 +27,7 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
 public sealed class Category
 {
     public int Id { get; set; }
+    public int UserId { get; set; }
     public required string Name { get; set; }
     // Slot-Key aus der Frontend-Farbpalette (z.B. "miete"), keine CSS-Var/Hexfarbe -
     // Server validiert nur gegen CategoryColors.Palette. Null = alte Kategorie, Frontend
@@ -39,6 +40,7 @@ public sealed class Category
 public sealed class Rule
 {
     public int Id { get; set; }
+    public int UserId { get; set; }
     public required string Pattern { get; set; }
     public int CategoryId { get; set; }
 }
@@ -46,6 +48,7 @@ public sealed class Rule
 public sealed class StoredTransaction
 {
     public int Id { get; set; }
+    public int UserId { get; set; }
     public required string ExternalId { get; set; }
     public DateOnly BookingDate { get; set; }
     public decimal Amount { get; set; }
