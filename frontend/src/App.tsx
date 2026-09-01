@@ -59,7 +59,7 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 }
 
 export default function App() {
-  const [user, setUser] = useState<{ username: string; isAdmin: boolean } | null | undefined>(undefined)
+  const [user, setUser] = useState<{ username: string; isAdmin: boolean; bankConnected: boolean } | null | undefined>(undefined)
 
   useEffect(() => {
     fetch('/api/auth/me').then(res => (res.ok ? res.json() : null)).then(setUser)
@@ -188,10 +188,12 @@ export default function App() {
                 </button>
               )}
 
-              <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
-                <IconLink />
-                <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
-              </button>
+              {!user.bankConnected && (
+                <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
+                  <IconLink />
+                  <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
+                </button>
+              )}
 
               <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
                 <IconLogout />

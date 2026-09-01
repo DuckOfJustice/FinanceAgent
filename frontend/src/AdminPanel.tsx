@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ConfirmDialog from './ConfirmDialog'
 
-type AdminUser = { id: number; username: string; isAdmin: boolean; hasBankConfig: boolean }
+type AdminUser = { id: number; username: string; isAdmin: boolean; hasBankConfig: boolean; bankConnected: boolean }
 type ConfigForm = { appId: string; privateKeyPem: string; aspspName: string; aspspCountry: string; accountIban: string }
 
 const emptyForm: ConfigForm = { appId: '', privateKeyPem: '', aspspName: '', aspspCountry: 'DE', accountIban: '' }
@@ -94,6 +94,18 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
     }
   }
 
+  const [resetError, setResetError] = useState<string | null>(null)
+
+  const resetConnection = async (u: AdminUser) => {
+    setResetError(null)
+    const res = await fetch(`/api/admin/users/${u.id}/reset-bank-connection`, { method: 'POST' })
+    if (res.ok) {
+      loadUsers()
+    } else {
+      setResetError(await errorMessage(res, 'Fehler beim Zuruecksetzen.'))
+    }
+  }
+
   return (
     <dialog
       ref={dialogRef}
@@ -108,6 +120,7 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
         </div>
 
         {deleteError && <p className="admin-panel-error">{deleteError}</p>}
+        {resetError && <p className="admin-panel-error">{resetError}</p>}
 
         {loading ? (
           <ul className="category-list">
@@ -130,12 +143,17 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
                     {u.isAdmin && <span className="admin-tag">Admin</span>}
                   </span>
                   <div className="admin-row-meta">
-                    <span className={`admin-status${u.hasBankConfig ? ' is-connected' : ''}`}>
-                      {u.hasBankConfig ? 'Bank verbunden' : 'Keine Bank-Config'}
+                    <span className={`admin-status${u.bankConnected ? ' is-connected' : ''}`}>
+                      {u.bankConnected ? 'Bank verbunden' : u.hasBankConfig ? 'Konfiguriert, nicht verbunden' : 'Keine Bank-Config'}
                     </span>
                     <button type="button" onClick={() => (editingId === u.id ? cancelEdit() : startEdit(u.id))}>
                       {editingId === u.id ? 'Schließen' : 'Bank-Config bearbeiten'}
                     </button>
+                    {u.bankConnected && (
+                      <button type="button" onClick={() => resetConnection(u)}>
+                        Verbindung zurücksetzen
+                      </button>
+                    )}
                     {u.username !== currentUsername && (
                       <button
                         type="button"

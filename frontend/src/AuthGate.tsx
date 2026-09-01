@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-type AuthUser = { username: string; isAdmin: boolean }
+type AuthUser = { username: string; isAdmin: boolean; bankConnected: boolean }
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   const text = await res.text().catch(() => '')
