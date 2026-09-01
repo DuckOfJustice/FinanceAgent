@@ -23,6 +23,11 @@ if (args is ["--selftest-user-schema"])
     UserSchemaSelfTest.Run();
     return;
 }
+if (args is ["--selftest-auth"])
+{
+    AuthSelfTest.Run();
+    return;
+}
 
 Directory.CreateDirectory("data");
 
@@ -35,6 +40,8 @@ builder.Services.AddHttpClient<EnableBankingClient>(c =>
     c.BaseAddress = new Uri(builder.Configuration["EnableBanking:BaseUrl"]!));
 
 builder.Services.AddScoped<CategorizationService>();
+
+builder.Services.AddFinanceAuth();
 
 var app = builder.Build();
 
@@ -120,6 +127,8 @@ using (var scope = app.Services.CreateScope())
     db.Database.ExecuteSqlRaw("""DROP INDEX IF EXISTS "IX_Categories_Name" """);
     db.Database.ExecuteSqlRaw("""CREATE UNIQUE INDEX IF NOT EXISTS "IX_Categories_UserId_Name" ON "Categories" ("UserId", "Name")""");
 }
+
+app.UseFinanceAuth();
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.
 app.MapGet("/api/institutions", async (EnableBankingClient bank) =>
