@@ -14,6 +14,11 @@ export default function AuthGate({ onAuthenticated }: { onAuthenticated: (user: 
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const switchMode = (next: 'login' | 'register') => {
+    setMode(next)
+    setError(null)
+  }
+
   const submit = async () => {
     if (!username.trim() || !password) {
       setError('Benutzername und Passwort duerfen nicht leer sein.')
@@ -37,19 +42,45 @@ export default function AuthGate({ onAuthenticated }: { onAuthenticated: (user: 
 
   return (
     <div className="auth-shell">
-      <form
-        className="auth-card"
-        onSubmit={e => { e.preventDefault(); submit() }}
-      >
-        <h1 className="auth-title">FinanceDuck</h1>
-        <div className="auth-tabs">
-          <button type="button" className={mode === 'login' ? 'is-active' : ''} onClick={() => { setMode('login'); setError(null) }}>Anmelden</button>
-          <button type="button" className={mode === 'register' ? 'is-active' : ''} onClick={() => { setMode('register'); setError(null) }}>Registrieren</button>
+      <form className="auth-card" onSubmit={e => { e.preventDefault(); submit() }}>
+        <div className="auth-brand">
+          <img className="auth-logo" src="/duck-icon.png" alt="" />
+          <div className="auth-name">FinanceDuck</div>
+          <div className="auth-tagline">Finanzen mit Quak-Faktor</div>
         </div>
-        <input type="text" placeholder="Benutzername" value={username} onChange={e => setUsername(e.target.value)} autoFocus />
-        <input type="password" placeholder="Passwort" value={password} onChange={e => setPassword(e.target.value)} />
-        {error && <p className="category-row-error">{error}</p>}
-        <button type="submit" disabled={submitting}>
+
+        <div className="auth-tabs">
+          <button type="button" aria-pressed={mode === 'login'} className={mode === 'login' ? 'is-active' : ''} onClick={() => switchMode('login')}>
+            Anmelden
+          </button>
+          <button type="button" aria-pressed={mode === 'register'} className={mode === 'register' ? 'is-active' : ''} onClick={() => switchMode('register')}>
+            Registrieren
+          </button>
+        </div>
+
+        <div className="auth-fields">
+          <input
+            type="text"
+            placeholder="Benutzername"
+            aria-label="Benutzername"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            autoComplete="username"
+            autoFocus
+          />
+          <input
+            type="password"
+            placeholder="Passwort"
+            aria-label="Passwort"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          />
+        </div>
+
+        {error && <p className="auth-error">{error}</p>}
+
+        <button type="submit" className="btn-primary" disabled={submitting}>
           {submitting ? 'Bitte warten...' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
         </button>
       </form>

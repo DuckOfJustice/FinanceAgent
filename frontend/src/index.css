@@ -355,9 +355,17 @@ button:focus-visible,
 }
 
 .cat-bar-fill {
+  width: 100%;
   height: 100%;
   border-radius: 3px;
-  transition: width 0.2s ease-out;
+  transform-origin: left;
+  transition: transform 0.2s var(--ease-out-quart);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-bar-fill {
+    transition: none;
+  }
 }
 
 /* Buchungen: eigene volle-Breite Karte unterhalb, statt in eine schmale Spalte gequetscht. */
@@ -1215,6 +1223,23 @@ button:focus-visible,
     flex: 0 0 auto;
   }
 
+  /* Admin-Panel: Verbindungsstatus + "Bearbeiten"-Button rutschen auf schmalen
+     Screens unter den Namen statt ihn zu verdraengen; Land-Feld verliert seine
+     feste Schmalspalte, damit beide Felder nebeneinander noch nutzbar bleiben. */
+  .admin-row-meta {
+    width: 100%;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+
+  .admin-field-row {
+    flex-wrap: wrap;
+  }
+
+  .admin-field-narrow {
+    flex: 1 1 5rem;
+  }
+
   /* Buchungsliste: aus der 5-Spalten-Tabelle (die auf schmalen Screens Gegenpartei und
      Verwendungszweck praktisch auf 0px zusammengequetscht hat) wird pro Buchung eine
      kompakte Karte - alle Infos bleiben sichtbar statt abgeschnitten zu werden. */
@@ -1295,28 +1320,267 @@ button:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 1.5rem;
 }
+
 .auth-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 280px;
-  padding: 24px;
-  border-radius: 12px;
+  gap: 1.1rem;
+  width: 100%;
+  max-width: 340px;
+  padding: 2rem;
+  border-radius: 16px;
   border: 1px solid var(--border);
   background: var(--surface-card);
+  box-shadow: var(--shadow-card);
 }
-.auth-title {
-  margin: 0 0 8px;
+
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
   text-align: center;
 }
+
+/* Gleiche Badge-Optik wie .app-logo-badge im Header, nur groesser fuer den
+   Login-Bildschirm - konsistente Markenwahrnehmung beim ersten Eindruck. */
+.auth-logo {
+  width: 56px;
+  height: 56px;
+  padding: 9px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--chart-balance) 12%, var(--surface-page));
+  object-fit: contain;
+}
+
+.auth-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.auth-tagline {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
 .auth-tabs {
   display: flex;
-  gap: 8px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink-primary) 5%, transparent);
 }
+
 .auth-tabs button {
   flex: 1;
+  justify-content: center;
+  padding: 0.45rem 0.7rem;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-muted);
+  transition: background-color 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
 }
+
+.auth-tabs button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink-primary) 4%, transparent);
+  color: var(--ink-secondary);
+}
+
 .auth-tabs button.is-active {
+  background: var(--surface-card);
+  color: var(--ink-primary);
   font-weight: 600;
+}
+
+.auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.auth-fields input {
+  font: inherit;
+  font-size: 13.5px;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--ink-primary);
+  transition: border-color 0.15s ease-out;
+}
+
+.auth-fields input:hover {
+  border-color: color-mix(in srgb, var(--ink-primary) 25%, var(--border));
+}
+
+.auth-fields input:focus-visible {
+  outline: 2px solid var(--chart-balance);
+  outline-offset: 1px;
+}
+
+.auth-error {
+  margin: -0.3rem 0 0;
+  font-size: 12.5px;
+  color: var(--status-critical);
+}
+
+/* Primaerer CTA (Login-Submit, Bank-Config speichern, ...) - Umkehrung statt
+   Akzentfarbe, damit der Kontrast in Light UND Dark automatisch stimmt
+   (--chart-balance als Volltonflaeche faellt im Dark-Theme unter 4.5:1 gegen
+   weissen Text). Ein Klassenname statt pro Screen dupliziert, damit alle
+   primaeren Aktionen in der App gleich aussehen. */
+.btn-primary {
+  justify-content: center;
+  padding: 0.65rem 0.9rem;
+  font-size: 13.5px;
+  font-weight: 600;
+  border: 1px solid var(--ink-primary);
+  background: var(--ink-primary);
+  color: var(--surface-page);
+}
+
+.btn-primary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ink-primary) 85%, var(--surface-page));
+  background: color-mix(in srgb, var(--ink-primary) 85%, var(--surface-page));
+}
+
+/* Admin-Panel ("Nutzer verwalten"): eigener Zeilen-Inhalt statt .category-row-main
+   pur, weil hier Name + Rollen-Tag + Verbindungsstatus + Aktion nebeneinander
+   stehen (mehr als CategoryManagers Name+Farbe). */
+.admin-row {
+  flex-wrap: wrap;
+  row-gap: 0.35rem;
+}
+
+.admin-tag {
+  margin-left: 0.5rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.admin-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.admin-status {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* Gleiches Gruen wie positive Betraege im Dashboard (--cat-gehalt) - "verbunden"
+   ist der App-weite Sinn von Gruen, kein neuer Status-Token noetig. */
+.admin-status.is-connected {
+  color: var(--cat-gehalt);
+  font-weight: 500;
+}
+
+.admin-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.6rem;
+  padding: 0.9rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink-primary) 3%, transparent);
+}
+
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.admin-field input,
+.admin-field textarea {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--ink-primary);
+  transition: border-color 0.15s ease-out;
+}
+
+.admin-field input:hover,
+.admin-field textarea:hover {
+  border-color: color-mix(in srgb, var(--ink-primary) 25%, var(--border));
+}
+
+.admin-field input:focus-visible,
+.admin-field textarea:focus-visible {
+  outline: 2px solid var(--chart-balance);
+  outline-offset: 1px;
+}
+
+.admin-field textarea {
+  resize: vertical;
+  min-height: 4.5em;
+}
+
+/* PEM-Schluessel sind fixed-width-lesbarer, und autoComplete/spellCheck sind
+   in AdminPanel.tsx fuer dieses Feld bewusst deaktiviert (Geheimnis, kein Text). */
+.admin-pem-input {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.admin-field-row {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.admin-field-row .admin-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-field-narrow {
+  flex: 0 0 5rem;
+}
+
+.admin-config-error {
+  margin: -0.2rem 0 0;
+  font-size: 12.5px;
+  color: var(--status-critical);
+}
+
+/* Panel-weiter Fehler (z.B. Loeschen fehlgeschlagen) - eigene Klasse statt
+   .admin-config-error, dessen negativer Top-Margin auf den Platz direkt unterm
+   letzten Formularfeld zugeschnitten ist. */
+.admin-panel-error {
+  margin: 0 0 0.75rem;
+  font-size: 12.5px;
+  color: var(--status-critical);
+}
+
+.admin-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+/* Nutzer verwalten braucht mehr Raum als CategoryManager/RuleManager (5-Felder-
+   Formular pro Zeile statt Name+Farbe) - eigene Groesse statt .category-modal
+   fuer alle drei Dialoge global zu vergroessern. */
+.admin-modal {
+  width: min(540px, calc(100vw - 2rem));
+  max-height: min(680px, calc(100vh - 4rem));
 }

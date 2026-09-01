@@ -192,7 +192,9 @@ app.MapGet("/api/consent-callback", async (string code, HttpContext http, Enable
     var sessionId = await bank.CreateSessionAsync(config.AppId!, protector.Unprotect(config.PrivateKeyPem!), code);
     config.SessionId = protector.Protect(sessionId);
     await db.SaveChangesAsync();
-    return Results.Text("Session erstellt und gespeichert.");
+    // Zurueck in die SPA statt einer nackten Textseite - App.tsx zeigt anhand des
+    // Query-Parameters eine Erfolgsmeldung und entfernt ihn danach aus der URL.
+    return Results.Redirect("/?bankConnected=1");
 }).RequireAuthorization();
 
 app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db, SecretProtector protector, DateOnly? from, DateOnly? to) =>

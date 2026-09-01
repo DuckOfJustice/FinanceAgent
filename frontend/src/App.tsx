@@ -28,6 +28,14 @@ const IconUpload = () => (
   </svg>
 )
 
+const IconLink = () => (
+  <svg {...iconProps}>
+    <path d="M9 15 15 9" />
+    <path d="M11 6.5 13 4.5a4 4 0 0 1 5.66 5.66L16.5 12.2" />
+    <path d="M13 17.5 11 19.5a4 4 0 0 1-5.66-5.66L7.5 11.8" />
+  </svg>
+)
+
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   const text = await res.text().catch(() => '')
   return text || fallback
@@ -39,6 +47,32 @@ export default function App() {
   useEffect(() => {
     fetch('/api/auth/me').then(res => (res.ok ? res.json() : null)).then(setUser)
   }, [])
+
+  const [connecting, setConnecting] = useState(false)
+  const [connectMessage, setConnectMessage] = useState<string | null>(null)
+
+  // /api/consent-callback leitet nach erfolgreichem Bank-Login hierher zurueck
+  // (siehe Program.cs) - Erfolgsmeldung zeigen, dann den Marker aus der URL
+  // entfernen, damit ein Reload sie nicht erneut anzeigt.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('bankConnected') === '1') {
+      setConnectMessage('Bank erfolgreich verbunden.')
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
+
+  const connectBank = async () => {
+    setConnecting(true)
+    setConnectMessage(null)
+    const res = await fetch('/api/consent-link', { method: 'POST' })
+    if (res.ok) {
+      const { url } = await res.json()
+      window.location.href = url
+    } else {
+      setConnectMessage(await errorMessage(res, 'Bank-Verbindung fehlgeschlagen.'))
+      setConnecting(false)
+    }
+  }
 
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [ruleManagerOpen, setRuleManagerOpen] = useState(false)
@@ -114,6 +148,11 @@ export default function App() {
               </button>
             )}
 
+            <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
+              <IconLink />
+              <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
+            </button>
+
             <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
               <IconUpload />
               <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
@@ -138,6 +177,7 @@ export default function App() {
             </button>
           </nav>
         </div>
+        {connectMessage && <p className="status-text">{connectMessage}</p>}
         {importMessage && <p className="status-text">{importMessage}</p>}
         {importSkipped.length > 0 && (
           <ul className="status-text" style={{ margin: '4px 0 0', paddingLeft: '18px' }}>
@@ -173,7 +213,7 @@ export default function App() {
 
       <RuleManager open={ruleManagerOpen} onClose={() => setRuleManagerOpen(false)} />
 
-      <AdminPanel open={adminPanelOpen} onClose={() => setAdminPanelOpen(false)} />
+      <AdminPanel open={adminPanelOpen} onClose={() => setAdminPanelOpen(false)} currentUsername={user.username} />
     </div>
   )
 }

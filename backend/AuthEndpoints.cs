@@ -100,6 +100,27 @@ public static class AuthEndpoints
             await db.SaveChangesAsync();
             return Results.Ok();
         });
+
+        admin.MapDelete("/users/{id:int}", async (int id, HttpContext http, FinanceDbContext db) =>
+        {
+            // Sich selbst loeschen wuerde die eigene Session verwaisen lassen (Cookie zeigt auf
+            // eine nicht mehr existierende UserId) - kein Recovery-Weg dafuer in dieser App.
+            if (id == http.User.GetUserId()) return Results.BadRequest("Der eigene Account kann nicht geloescht werden.");
+
+            var user = await db.Users.FindAsync(id);
+            if (user is null) return Results.NotFound();
+
+            // Keine EF-Fremdschluessel auf UserId (gleiches Muster wie ueberall sonst in dieser
+            // App) - abhaengige Daten muessen explizit mitgeloescht werden, sonst blieben sie als
+            // verwaiste Zeilen unter einer nicht mehr existierenden UserId liegen.
+            await db.Transactions.Where(t => t.UserId == id).ExecuteDeleteAsync();
+            await db.Rules.Where(r => r.UserId == id).ExecuteDeleteAsync();
+            await db.Categories.Where(c => c.UserId == id).ExecuteDeleteAsync();
+            await db.EnableBankingConfigs.Where(c => c.UserId == id).ExecuteDeleteAsync();
+            db.Users.Remove(user);
+            await db.SaveChangesAsync();
+            return Results.Ok();
+        });
     }
 }
 

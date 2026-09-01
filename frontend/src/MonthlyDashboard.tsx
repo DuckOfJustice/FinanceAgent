@@ -316,7 +316,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
           </span>
         </div>
         <div className="cat-bar-track">
-          <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: color }} />
+          <div className="cat-bar-fill" style={{ transform: `scaleX(${barPct / 100})`, background: color }} />
         </div>
       </button>
     )
