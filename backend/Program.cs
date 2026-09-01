@@ -155,19 +155,19 @@ app.MapAuthEndpoints();
 app.MapAdminEndpoints();
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.
-app.MapGet("/api/institutions", async (HttpContext http, EnableBankingClient bank, FinanceDbContext db) =>
+app.MapGet("/api/institutions", async (HttpContext http, EnableBankingClient bank, FinanceDbContext db, SecretProtector protector) =>
 {
     var config = await RequireConfigAsync(http, db);
-    return Results.Ok(await bank.ListInstitutionsAsync(config.AppId!, config.PrivateKeyPem!, config.AspspCountry ?? "DE"));
+    return Results.Ok(await bank.ListInstitutionsAsync(config.AppId!, protector.Unprotect(config.PrivateKeyPem!), config.AspspCountry ?? "DE"));
 }).RequireAuthorization();
 
 // Einmalig bei der Ersteinrichtung aufrufen: liefert den Consent-Link fuer den Browser.
-app.MapPost("/api/consent-link", async (HttpContext http, EnableBankingClient bank, FinanceDbContext db) =>
+app.MapPost("/api/consent-link", async (HttpContext http, EnableBankingClient bank, FinanceDbContext db, SecretProtector protector) =>
 {
     var config = await RequireConfigAsync(http, db);
     if (string.IsNullOrEmpty(config.AspspName))
         throw new InvalidOperationException("AspspName fehlt - siehe GET /api/institutions.");
-    var url = await bank.StartAuthorizationAsync(config.AppId!, config.PrivateKeyPem!, config.AspspName, config.AspspCountry ?? "DE");
+    var url = await bank.StartAuthorizationAsync(config.AppId!, protector.Unprotect(config.PrivateKeyPem!), config.AspspName, config.AspspCountry ?? "DE");
     return Results.Ok(new { url });
 }).RequireAuthorization();
 
@@ -175,7 +175,7 @@ app.MapPost("/api/consent-link", async (HttpContext http, EnableBankingClient ba
 app.MapGet("/api/consent-callback", async (string code, HttpContext http, EnableBankingClient bank, FinanceDbContext db, SecretProtector protector) =>
 {
     var config = await RequireConfigAsync(http, db);
-    var sessionId = await bank.CreateSessionAsync(config.AppId!, config.PrivateKeyPem!, code);
+    var sessionId = await bank.CreateSessionAsync(config.AppId!, protector.Unprotect(config.PrivateKeyPem!), code);
     config.SessionId = protector.Protect(sessionId);
     await db.SaveChangesAsync();
     return Results.Text("Session erstellt und gespeichert.");
@@ -197,7 +197,7 @@ app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, C
     List<BankTransaction> transactions;
     try
     {
-        transactions = await bank.GetTransactionsAsync(config.AppId!, config.PrivateKeyPem!, protector.Unprotect(config.SessionId), config.AccountIban, rangeFrom, rangeTo);
+        transactions = await bank.GetTransactionsAsync(config.AppId!, protector.Unprotect(config.PrivateKeyPem!), protector.Unprotect(config.SessionId), config.AccountIban, rangeFrom, rangeTo);
     }
     catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
     {

@@ -86,7 +86,12 @@ public sealed class EnableBankingClient(HttpClient http)
 
     private async Task<string> FindAccountByIbanAsync(string appId, string privateKeyPem, List<string> accountUids, string targetIban)
     {
-        if (AccountUidCache.TryGetValue(targetIban, out var cached))
+        // Cache-Key enthaelt appId, nicht nur die IBAN: mehrere Nutzer teilen sich diesen
+        // process-weiten Cache, ein IBAN-Duplikat/-Tippfehler zwischen zwei Nutzern darf nicht
+        // dazu fuehren, dass die unter dem einen appId/Session aufgeloeste Account-UID fuer den
+        // anderen Nutzer wiederverwendet wird.
+        var cacheKey = $"{appId}:{targetIban}";
+        if (AccountUidCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
         foreach (var uid in accountUids)
@@ -97,7 +102,7 @@ public sealed class EnableBankingClient(HttpClient http)
             var details = await detailsRes.Content.ReadFromJsonAsync<AccountDetails>();
             if (details?.AccountId.Iban == targetIban)
             {
-                AccountUidCache[targetIban] = uid;
+                AccountUidCache[cacheKey] = uid;
                 return uid;
             }
         }
