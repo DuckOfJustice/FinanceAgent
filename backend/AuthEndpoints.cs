@@ -159,7 +159,11 @@ public static class AuthEndpoints
             db.PasswordResetTokens.Add(new PasswordResetToken { Token = token, UserId = id, ExpiresAt = DateTime.UtcNow.AddHours(24) });
             await db.SaveChangesAsync();
 
-            var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+            // Request.Scheme zeigt hier "http" (interne Docker-Verbindung zum Backend ist
+            // unverschluesselt) - X-Forwarded-Proto kommt von nginx' TLS-Terminierung (siehe
+            // nginx.conf) und traegt das tatsaechliche Schema des Clients.
+            var scheme = http.Request.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? http.Request.Scheme;
+            var baseUrl = $"{scheme}://{http.Request.Host}";
             return Results.Ok(new { url = $"{baseUrl}/?resetToken={token}" });
         });
 
