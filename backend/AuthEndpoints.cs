@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
@@ -67,6 +68,34 @@ public static class AuthEndpoints
             var bankConnected = await db.EnableBankingConfigs.AnyAsync(c => c.UserId == userId && c.SessionId != null);
             return Results.Ok(new { username = http.User.Identity.Name, isAdmin = http.User.IsAdmin(), bankConnected });
         });
+
+        // Vom Reset-Link aufgerufen, bevor das Formular den Benutzernamen anzeigt - prueft
+        // nur, ob der Token noch gueltig ist, setzt nichts.
+        app.MapGet("/api/auth/reset-password/{token}", async (string token, FinanceDbContext db) =>
+        {
+            var entry = await db.PasswordResetTokens.FirstOrDefaultAsync(t => t.Token == token);
+            if (entry is null || entry.ExpiresAt < DateTime.UtcNow) return Results.NotFound();
+            var username = await db.Users.Where(u => u.Id == entry.UserId).Select(u => u.Username).FirstOrDefaultAsync();
+            if (username is null) return Results.NotFound();
+            return Results.Ok(new { username });
+        });
+
+        app.MapPost("/api/auth/reset-password", async (ResetPasswordRequest body, FinanceDbContext db, IPasswordHasher<User> hasher) =>
+        {
+            if (string.IsNullOrEmpty(body.Token) || string.IsNullOrEmpty(body.NewPassword))
+                return Results.BadRequest("Token und neues Passwort duerfen nicht leer sein.");
+
+            var entry = await db.PasswordResetTokens.FirstOrDefaultAsync(t => t.Token == body.Token);
+            if (entry is null || entry.ExpiresAt < DateTime.UtcNow) return Results.BadRequest("Link ist ungueltig oder abgelaufen.");
+
+            var user = await db.Users.FindAsync(entry.UserId);
+            if (user is null) return Results.NotFound();
+
+            user.PasswordHash = hasher.HashPassword(user, body.NewPassword);
+            db.PasswordResetTokens.Remove(entry);
+            await db.SaveChangesAsync();
+            return Results.Ok();
+        });
     }
 
     public static void MapAdminEndpoints(this WebApplication app)
@@ -118,6 +147,22 @@ public static class AuthEndpoints
             return Results.Ok();
         });
 
+        // Erstellt einen Einmal-Link, den der Admin manuell an den Nutzer schickt (kein SMTP
+        // in dieser App). Alte, noch nicht eingeloeste Links fuer denselben Nutzer werden
+        // verworfen, damit immer nur der zuletzt verschickte Link funktioniert.
+        admin.MapPost("/users/{id:int}/password-reset-link", async (int id, HttpContext http, FinanceDbContext db) =>
+        {
+            if (!await db.Users.AnyAsync(u => u.Id == id)) return Results.NotFound();
+
+            await db.PasswordResetTokens.Where(t => t.UserId == id).ExecuteDeleteAsync();
+            var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+            db.PasswordResetTokens.Add(new PasswordResetToken { Token = token, UserId = id, ExpiresAt = DateTime.UtcNow.AddHours(24) });
+            await db.SaveChangesAsync();
+
+            var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+            return Results.Ok(new { url = $"{baseUrl}/?resetToken={token}" });
+        });
+
         admin.MapDelete("/users/{id:int}", async (int id, HttpContext http, FinanceDbContext db) =>
         {
             // Sich selbst loeschen wuerde die eigene Session verwaisen lassen (Cookie zeigt auf
@@ -143,3 +188,4 @@ public static class AuthEndpoints
 
 public record AuthRequest(string? Username, string? Password);
 public record EnableBankingConfigRequest(string? AppId, string? PrivateKeyPem, string? AspspName, string? AspspCountry, string? AccountIban);
+public record ResetPasswordRequest(string? Token, string? NewPassword);

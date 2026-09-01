@@ -1533,6 +1533,28 @@ button:focus-visible,
   font-weight: 500;
 }
 
+.admin-reset-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.admin-reset-link input {
+  flex: 1;
+  min-width: 220px;
+  font: inherit;
+  font-size: 12px;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--ink-primary);
+}
+
 .admin-config-form {
   display: flex;
   flex-direction: column;

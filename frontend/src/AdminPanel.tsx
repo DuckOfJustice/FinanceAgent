@@ -106,6 +106,21 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
     }
   }
 
+  const [resetLinks, setResetLinks] = useState<Record<number, string>>({})
+  const [resetLinkError, setResetLinkError] = useState<string | null>(null)
+
+  const createResetLink = async (u: AdminUser) => {
+    setResetLinkError(null)
+    const res = await fetch(`/api/admin/users/${u.id}/password-reset-link`, { method: 'POST' })
+    if (res.ok) {
+      const { url } = await res.json()
+      setResetLinks(prev => ({ ...prev, [u.id]: url }))
+      navigator.clipboard?.writeText(url).catch(() => {})
+    } else {
+      setResetLinkError(await errorMessage(res, 'Fehler beim Erstellen des Links.'))
+    }
+  }
+
   return (
     <dialog
       ref={dialogRef}
@@ -121,6 +136,7 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
 
         {deleteError && <p className="admin-panel-error">{deleteError}</p>}
         {resetError && <p className="admin-panel-error">{resetError}</p>}
+        {resetLinkError && <p className="admin-panel-error">{resetLinkError}</p>}
 
         {loading ? (
           <ul className="category-list">
@@ -154,6 +170,9 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
                         Verbindung zurücksetzen
                       </button>
                     )}
+                    <button type="button" onClick={() => createResetLink(u)}>
+                      Passwort-Reset-Link erstellen
+                    </button>
                     {u.username !== currentUsername && (
                       <button
                         type="button"
@@ -166,6 +185,17 @@ export default function AdminPanel({ open, onClose, currentUsername }: { open: b
                     )}
                   </div>
                 </div>
+
+                {resetLinks[u.id] && (
+                  <p className="admin-reset-link">
+                    Link (in Zwischenablage kopiert):
+                    <input
+                      readOnly
+                      value={resetLinks[u.id]}
+                      onFocus={e => e.target.select()}
+                    />
+                  </p>
+                )}
 
                 {editingId === u.id && (
                   <div className="admin-config-form">

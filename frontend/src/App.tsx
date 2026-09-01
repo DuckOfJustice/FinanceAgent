@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import AuthGate from './AuthGate'
+import ResetPassword from './ResetPassword'
 import MonthlyDashboard from './MonthlyDashboard'
 import CategoryManager from './CategoryManager'
 import RuleManager from './RuleManager'
@@ -131,6 +132,19 @@ export default function App() {
       setImportMessage(await errorMessage(res, 'Fehler beim Import.'))
     }
     setImportLoading(false)
+  }
+
+  const resetToken = new URLSearchParams(window.location.search).get('resetToken')
+  if (resetToken) {
+    return (
+      <ResetPassword
+        token={resetToken}
+        onDone={() => {
+          window.history.replaceState(null, '', window.location.pathname)
+          window.location.reload()
+        }}
+      />
+    )
   }
 
   if (user === undefined) return null

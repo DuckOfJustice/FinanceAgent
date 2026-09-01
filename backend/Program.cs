@@ -162,6 +162,14 @@ using (var scope = app.Services.CreateScope())
     }
     db.Database.ExecuteSqlRaw("""DROP INDEX IF EXISTS "IX_Categories_Name" """);
     db.Database.ExecuteSqlRaw("""CREATE UNIQUE INDEX IF NOT EXISTS "IX_Categories_UserId_Name" ON "Categories" ("UserId", "Name")""");
+
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "PasswordResetTokens" (
+            "Token" TEXT NOT NULL CONSTRAINT "PK_PasswordResetTokens" PRIMARY KEY,
+            "UserId" INTEGER NOT NULL,
+            "ExpiresAt" TEXT NOT NULL
+        )
+        """);
 }
 
 app.UseFinanceAuth();
