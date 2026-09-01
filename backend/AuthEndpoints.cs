@@ -64,13 +64,7 @@ public static class AuthEndpoints
             return Results.Ok(new { username = http.User.Identity.Name, isAdmin = http.User.IsAdmin() });
         });
     }
-}
 
-public record AuthRequest(string? Username, string? Password);
-public record EnableBankingConfigRequest(string? AppId, string? PrivateKeyPem, string? AspspName, string? AspspCountry, string? AccountIban);
-
-public static class AdminEndpoints
-{
     public static void MapAdminEndpoints(this WebApplication app)
     {
         var admin = app.MapGroup("/api/admin").RequireAuthorization("Admin");
@@ -105,3 +99,6 @@ public static class AdminEndpoints
         });
     }
 }
+
+public record AuthRequest(string? Username, string? Password);
+public record EnableBankingConfigRequest(string? AppId, string? PrivateKeyPem, string? AspspName, string? AspspCountry, string? AccountIban);
