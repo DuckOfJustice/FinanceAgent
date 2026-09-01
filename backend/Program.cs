@@ -1,6 +1,9 @@
 using FinanceDuck.Api;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
 if (args is ["--selftest-camt053"])
@@ -26,6 +29,25 @@ if (args is ["--selftest-user-schema"])
 if (args is ["--selftest-auth"])
 {
     AuthSelfTest.Run();
+    return;
+}
+if (args is ["--selftest-migrate-user"])
+{
+    await MigrationSelfTestAsync();
+    return;
+}
+if (args is ["--migrate-user", var oldDbPath, var oldEnvPath, var newUsername, var newPassword])
+{
+    var migrationServices = new ServiceCollection()
+        .AddDbContext<FinanceDbContext>(o => o.UseSqlite("Data Source=data/finance.db"))
+        .AddFinanceAuth()
+        .BuildServiceProvider();
+    using var migrationScope = migrationServices.CreateScope();
+    await UserMigration.RunAsync(
+        oldDbPath, oldEnvPath, newUsername, newPassword,
+        migrationScope.ServiceProvider.GetRequiredService<FinanceDbContext>(),
+        migrationScope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>(),
+        migrationScope.ServiceProvider.GetRequiredService<SecretProtector>());
     return;
 }
 
@@ -332,6 +354,63 @@ async Task ImportDedupSelfTestAsync()
 void SelfTestAssert(bool condition, string message)
 {
     if (!condition) throw new Exception($"Import-Dedup self-test FAILED: {message}");
+}
+
+async Task MigrationSelfTestAsync()
+{
+    var oldDbPath = Path.Combine(Path.GetTempPath(), $"finance-migrate-old-{Guid.NewGuid():N}.db");
+    var oldEnvPath = Path.Combine(Path.GetTempPath(), $"finance-migrate-{Guid.NewGuid():N}.env");
+    try
+    {
+        using (var oldConnection = new SqliteConnection($"Data Source={oldDbPath}"))
+        {
+            oldConnection.Open();
+            using var cmd = oldConnection.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE "Categories" ("Id" INTEGER PRIMARY KEY, "Name" TEXT NOT NULL, "Color" TEXT);
+                CREATE TABLE "Rules" ("Id" INTEGER PRIMARY KEY, "Pattern" TEXT NOT NULL, "CategoryId" INTEGER NOT NULL);
+                CREATE TABLE "Transactions" ("Id" INTEGER PRIMARY KEY, "ExternalId" TEXT NOT NULL, "BookingDate" TEXT NOT NULL,
+                    "Amount" TEXT NOT NULL, "CounterpartyName" TEXT, "Purpose" TEXT NOT NULL, "Category" TEXT NOT NULL);
+                INSERT INTO "Categories" VALUES (5, 'Miete', NULL);
+                INSERT INTO "Rules" VALUES (1, 'Hausverwaltung', 5);
+                INSERT INTO "Transactions" VALUES (1, 'ext-1', '2025-01-01', -800.0, 'Hausverwaltung GmbH', 'Miete Januar', 'Miete');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        await File.WriteAllTextAsync(oldEnvPath, "EnableBanking__AspspName=Testbank\nEnableBanking__AccountIban=DE00OLD\n");
+
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<FinanceDbContext>().UseSqlite(connection).Options;
+        using var targetDb = new FinanceDbContext(options);
+        targetDb.Database.EnsureCreated();
+
+        var hasher = new PasswordHasher<User>();
+        var protector = new SecretProtector(DataProtectionProvider.Create(new DirectoryInfo(Path.GetTempPath())));
+        await UserMigration.RunAsync(oldDbPath, oldEnvPath, "migrated-friend", "somepassword", targetDb, hasher, protector);
+
+        var migratedUser = targetDb.Users.Single(u => u.Username == "migrated-friend");
+        var config = targetDb.EnableBankingConfigs.Single(c => c.UserId == migratedUser.Id);
+        SelfTestAssert(config.AccountIban == "DE00OLD", $"war {config.AccountIban}");
+
+        var category = targetDb.Categories.Single(c => c.UserId == migratedUser.Id);
+        SelfTestAssert(category.Name == "Miete", $"war {category.Name}");
+
+        var rule = targetDb.Rules.Single(r => r.UserId == migratedUser.Id);
+        SelfTestAssert(rule.CategoryId == category.Id, "Rule.CategoryId wurde nicht auf die neue Kategorie-Id remapped");
+
+        var transaction = targetDb.Transactions.Single(t => t.UserId == migratedUser.Id);
+        SelfTestAssert(transaction.Category == "Miete", $"war {transaction.Category}");
+
+        Console.WriteLine("User migration self-test: OK");
+    }
+    finally
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        try { File.Delete(oldDbPath); } catch { }
+        try { File.Delete(oldEnvPath); } catch { }
+    }
 }
 
 // Kategorisiert bereits gespeicherte Buchungen neu (z.B. nach Anpassung von
