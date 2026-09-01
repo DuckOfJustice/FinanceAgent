@@ -1515,7 +1515,8 @@ button:focus-visible,
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem 0.7rem;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  max-width: 100%;
   margin-left: auto;
 }
 
