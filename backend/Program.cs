@@ -18,6 +18,11 @@ if (args is ["--selftest-import-dedup"])
     await ImportDedupSelfTestAsync();
     return;
 }
+if (args is ["--selftest-user-schema"])
+{
+    UserSchemaSelfTest.Run();
+    return;
+}
 
 Directory.CreateDirectory("data");
 
@@ -79,35 +84,27 @@ using (var scope = app.Services.CreateScope())
         // Spalte existiert schon (DB aus einer frueheren App-Version) - nichts zu tun.
     }
 
-    // Einmalige Erstbefuellung - vormals die feste Kategorienliste in CategorizationService.
-    if (!db.Categories.Any())
-    {
-        string[] defaultCategories =
-            ["Lebensmittel & Haushalt", "Miete", "Freizeit & Sport", "Tankstelle", "Versicherung",
-             "Gehalt", "Abo", "Gesundheit", "Sonstiges",
-             "Fitness Studio", "Audi Leasing", "Online-Shop", "Restaurant & Lieferservice", "Möbel", "Kreditkarte",
-             "Telefon & Internet", "Rundfunkbeitrag"];
-        db.Categories.AddRange(defaultCategories.Select(name => new Category { Name = name }));
-        db.SaveChanges();
-    }
-
-    // Einmalige Migration der alten category-rules.json in die Rules-Tabelle - danach wird
-    // die Datei nicht mehr gelesen, CategorizationService fragt die DB ab.
-    if (!db.Rules.Any() && File.Exists("category-rules.json"))
-    {
-        var legacyRules = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText("category-rules.json")) ?? [];
-        var categoryIdsByName = db.Categories.ToDictionary(c => c.Name, c => c.Id);
-        foreach (var (pattern, categoryName) in legacyRules)
-        {
-            if (!categoryIdsByName.TryGetValue(categoryName, out var categoryId))
-            {
-                Console.WriteLine($"[category-rules.json] Unbekannte Kategorie '{categoryName}' fuer Muster '{pattern}' - Regel wird nicht migriert.");
-                continue;
-            }
-            db.Rules.Add(new Rule { Pattern = pattern, CategoryId = categoryId });
-        }
-        db.SaveChanges();
-    }
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "Users" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_Users" PRIMARY KEY AUTOINCREMENT,
+            "Username" TEXT NOT NULL,
+            "PasswordHash" TEXT NOT NULL,
+            "IsAdmin" INTEGER NOT NULL,
+            "CreatedAt" TEXT NOT NULL
+        )
+        """);
+    db.Database.ExecuteSqlRaw("""CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_Username" ON "Users" ("Username")""");
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "EnableBankingConfigs" (
+            "UserId" INTEGER NOT NULL CONSTRAINT "PK_EnableBankingConfigs" PRIMARY KEY,
+            "AppId" TEXT,
+            "PrivateKeyPem" TEXT,
+            "AspspName" TEXT,
+            "AspspCountry" TEXT,
+            "SessionId" TEXT,
+            "AccountIban" TEXT
+        )
+        """);
 }
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.

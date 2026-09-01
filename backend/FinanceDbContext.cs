@@ -7,6 +7,8 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
     public DbSet<StoredTransaction> Transactions => Set<StoredTransaction>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Rule> Rules => Set<Rule>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<EnableBankingConfig> EnableBankingConfigs => Set<EnableBankingConfig>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -17,6 +19,8 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
         // eine DB-Constraint. Index bleibt fuer die Lookup-Performance dort erhalten.
         modelBuilder.Entity<StoredTransaction>().HasIndex(t => t.ExternalId);
         modelBuilder.Entity<Category>().HasIndex(c => c.Name).IsUnique();
+        modelBuilder.Entity<User>().HasIndex(u => u.Username).IsUnique();
+        modelBuilder.Entity<EnableBankingConfig>().HasKey(c => c.UserId);
     }
 }
 
@@ -48,4 +52,27 @@ public sealed class StoredTransaction
     public string? CounterpartyName { get; set; }
     public required string Purpose { get; set; }
     public required string Category { get; set; }
+}
+
+public sealed class User
+{
+    public int Id { get; set; }
+    public required string Username { get; set; }
+    public required string PasswordHash { get; set; }
+    public bool IsAdmin { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+// 1:1 mit User - jeder Nutzer hat genau eine eigene EnableBanking-App-Registrierung
+// (eigener AppId/PrivateKey, ggf. sogar andere Bank). PrivateKeyPem/SessionId werden
+// verschluesselt gespeichert (siehe SecretProtector in Auth.cs).
+public sealed class EnableBankingConfig
+{
+    public int UserId { get; set; }
+    public string? AppId { get; set; }
+    public string? PrivateKeyPem { get; set; }
+    public string? AspspName { get; set; }
+    public string? AspspCountry { get; set; }
+    public string? SessionId { get; set; }
+    public string? AccountIban { get; set; }
 }
