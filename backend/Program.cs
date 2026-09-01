@@ -153,8 +153,9 @@ app.MapGet("/api/consent-callback", async (string code, EnableBankingClient bank
     return Results.Text($"Session erstellt. In .env eintragen:\nEnableBanking__SessionId={sessionId}");
 });
 
-app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db, DateOnly? from, DateOnly? to) =>
+app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db, DateOnly? from, DateOnly? to) =>
 {
+    var userId = http.User.GetUserId();
     var sessionId = app.Configuration["EnableBanking:SessionId"];
     if (string.IsNullOrEmpty(sessionId))
         return Results.BadRequest("Kein EnableBanking:SessionId gesetzt - erst /api/consent-link durchlaufen und Ergebnis in .env eintragen.");
@@ -178,17 +179,18 @@ app.MapPost("/api/refresh", async (EnableBankingClient bank, CategorizationServi
         return Results.Json(new { error = $"Zugriff blockiert: {ex.Message}" }, statusCode: 429);
     }
 
-    var (imported, _) = await ImportTransactionsAsync(transactions, categorizer, db);
+    var (imported, _) = await ImportTransactionsAsync(userId, transactions, categorizer, db);
     return Results.Ok(new { imported });
-});
+}).RequireAuthorization();
 
 // Bankunabhaengiger Nachimport: eine oder mehrere CAMT.052/053-Dateien hochladen, um Buchungen
 // zu importieren, die weiter zurueckliegen als das 90-Tage-Limit der EnableBanking-Session.
 // Gleiche Dedup-/Kategorisierungslogik wie /api/refresh, nur die Quelle der Transaktionen
 // unterscheidet sich. Eine einzelne kaputte Datei bricht nicht den ganzen Batch ab - sie wird
 // uebersprungen und als Fehler gemeldet, waehrend die uebrigen Dateien trotzdem importiert werden.
-app.MapPost("/api/import/camt053", async (IFormFileCollection files, CategorizationService categorizer, FinanceDbContext db) =>
+app.MapPost("/api/import/camt053", async (HttpContext http, IFormFileCollection files, CategorizationService categorizer, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
     var imported = 0;
     var total = 0;
     var errors = new List<object>();
@@ -209,15 +211,15 @@ app.MapPost("/api/import/camt053", async (IFormFileCollection files, Categorizat
         }
 
         total += transactions.Count;
-        var (fileImported, fileSkipped) = await ImportTransactionsAsync(transactions, categorizer, db);
+        var (fileImported, fileSkipped) = await ImportTransactionsAsync(userId, transactions, categorizer, db);
         imported += fileImported;
         skipped.AddRange(fileSkipped);
     }
 
     return Results.Ok(new { imported, total, errors, skipped });
-}).DisableAntiforgery(); // Ein-Personen-Tool ohne Cookie-Auth - kein CSRF-Kontext, den es zu schuetzen gaebe.
+}).RequireAuthorization().DisableAntiforgery(); // DisableAntiforgery: Cookie-Auth schuetzt bereits per RequireAuthorization, kein zusaetzlicher CSRF-Token-Flow fuer diesen Upload-Endpoint.
 
-async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
+async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(int userId, List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
 {
     var imported = 0;
     var skipped = new List<object>();
@@ -238,7 +240,7 @@ async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<Ba
         // seltenen Fall zweier wirklich verschiedener Buchungen mit zufaellig identischem
         // Datum/Betrag/Zweck zu unterscheiden.
         var existingById = await db.Transactions.FirstOrDefaultAsync(t =>
-            t.ExternalId == tx.ExternalId && t.BookingDate == tx.BookingDate && t.Amount == tx.Amount);
+            t.ExternalId == tx.ExternalId && t.BookingDate == tx.BookingDate && t.Amount == tx.Amount && t.UserId == userId);
         if (existingById is not null)
         {
             skipped.Add(new
@@ -256,16 +258,17 @@ async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(List<Ba
             continue;
         }
         var existingByContent = await db.Transactions.FirstOrDefaultAsync(t =>
-            t.BookingDate == tx.BookingDate && t.Amount == tx.Amount && t.Purpose == tx.Purpose);
+            t.BookingDate == tx.BookingDate && t.Amount == tx.Amount && t.Purpose == tx.Purpose && t.UserId == userId);
         if (existingByContent is not null)
         {
             skipped.Add(new { tx.BookingDate, tx.Amount, tx.Purpose, matchedBy = "content", existingId = existingByContent.Id, existingExternalId = existingByContent.ExternalId, newExternalId = tx.ExternalId });
             continue;
         }
 
-        var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose, tx.Amount);
+        var category = await categorizer.CategorizeAsync(userId, tx.CounterpartyName, tx.Purpose, tx.Amount);
         db.Transactions.Add(new StoredTransaction
         {
+            UserId = userId,
             ExternalId = tx.ExternalId,
             BookingDate = tx.BookingDate,
             Amount = tx.Amount,
@@ -293,21 +296,22 @@ async Task ImportDedupSelfTestAsync()
     using var testDb = new FinanceDbContext(options);
     testDb.Database.EnsureCreated();
     var testCategorizer = new CategorizationService(testDb);
+    const int testUserId = 1; // ponytail: kein echter User noetig - Sqlite erzwingt hier keinen FK (siehe Rule.CategoryId-Kommentar).
 
     // Quelle 1: EnableBanking-Refresh legt eine Buchung mit API-eigener ExternalId an.
     var enableBankingTx = new BankTransaction("eb-tx-123", new DateOnly(2025, 9, 15), -49.99m, "Testhaendler", "Testkauf");
-    var (imported1, skipped1) = await ImportTransactionsAsync([enableBankingTx], testCategorizer, testDb);
+    var (imported1, skipped1) = await ImportTransactionsAsync(testUserId, [enableBankingTx], testCategorizer, testDb);
     SelfTestAssert(imported1 == 1 && skipped1.Count == 0, $"erster Import: erwartet 1/0, war {imported1}/{skipped1.Count}");
 
     // Quelle 2: CAMT-Import derselben realen Buchung mit der AcctSvcrRef der Bank - andere
     // ExternalId, aber gleiches Datum/Betrag/Verwendungszweck -> muss als Duplikat erkannt werden.
     var camtTx = new BankTransaction("camt-acctsvcrref-456", new DateOnly(2025, 9, 15), -49.99m, "Testhaendler", "Testkauf");
-    var (imported2, skipped2) = await ImportTransactionsAsync([camtTx], testCategorizer, testDb);
+    var (imported2, skipped2) = await ImportTransactionsAsync(testUserId, [camtTx], testCategorizer, testDb);
     SelfTestAssert(imported2 == 0 && skipped2.Count == 1, $"zweiter Import (Duplikat ueber Quellen hinweg): erwartet 0/1, war {imported2}/{skipped2.Count}");
 
     // Andere Buchung (abweichender Betrag) am selben Tag mit demselben Haendler darf nicht uebersprungen werden.
     var distinctTx = new BankTransaction("camt-acctsvcrref-789", new DateOnly(2025, 9, 15), -12.00m, "Testhaendler", "Testkauf");
-    var (imported3, skipped3) = await ImportTransactionsAsync([distinctTx], testCategorizer, testDb);
+    var (imported3, skipped3) = await ImportTransactionsAsync(testUserId, [distinctTx], testCategorizer, testDb);
     SelfTestAssert(imported3 == 1 && skipped3.Count == 0, $"echte andere Buchung: erwartet 1/0, war {imported3}/{skipped3.Count}");
 
     // Regression: manche Zahlungsdienstleister (z.B. Lohn/Gehalt-Laeufe) vergeben dieselbe
@@ -315,11 +319,11 @@ async Task ImportDedupSelfTestAsync()
     // verschiedenen Tagen (identischer Betrag, wie im real gemeldeten Fall) mit identischer
     // ExternalId. Beide muessen importiert werden, keine darf faelschlich als Duplikat gelten.
     var gehaltSep = new BankTransaction("00560023", new DateOnly(2025, 9, 16), 2170.17m, "DT Privatkunden GmbH", "Lohn/Gehalt 00560023/202509");
-    var (imported4, skipped4) = await ImportTransactionsAsync([gehaltSep], testCategorizer, testDb);
+    var (imported4, skipped4) = await ImportTransactionsAsync(testUserId, [gehaltSep], testCategorizer, testDb);
     SelfTestAssert(imported4 == 1 && skipped4.Count == 0, $"erste Gehaltszahlung: erwartet 1/0, war {imported4}/{skipped4.Count}");
 
     var gehaltOkt = new BankTransaction("00560023", new DateOnly(2025, 10, 16), 2170.17m, "DT Privatkunden GmbH", "Lohn/Gehalt 00560023/202510");
-    var (imported5, skipped5) = await ImportTransactionsAsync([gehaltOkt], testCategorizer, testDb);
+    var (imported5, skipped5) = await ImportTransactionsAsync(testUserId, [gehaltOkt], testCategorizer, testDb);
     SelfTestAssert(imported5 == 1 && skipped5.Count == 0, $"zweite Gehaltszahlung trotz gleicher Referenz: erwartet 1/0, war {imported5}/{skipped5.Count}");
 
     Console.WriteLine("Import-Dedup self-test: OK");
@@ -333,13 +337,14 @@ void SelfTestAssert(bool condition, string message)
 // Kategorisiert bereits gespeicherte Buchungen neu (z.B. nach Anpassung von
 // category-rules.json oder des Prompts) - /api/refresh setzt die Kategorie sonst
 // nur einmalig beim Import und fasst bestehende Zeilen nie wieder an.
-app.MapPost("/api/recategorize", async (CategorizationService categorizer, FinanceDbContext db) =>
+app.MapPost("/api/recategorize", async (HttpContext http, CategorizationService categorizer, FinanceDbContext db) =>
 {
-    var all = await db.Transactions.ToListAsync();
+    var userId = http.User.GetUserId();
+    var all = await db.Transactions.Where(t => t.UserId == userId).ToListAsync();
     var changed = 0;
     foreach (var tx in all)
     {
-        var category = await categorizer.CategorizeAsync(tx.CounterpartyName, tx.Purpose, tx.Amount);
+        var category = await categorizer.CategorizeAsync(userId, tx.CounterpartyName, tx.Purpose, tx.Amount);
         if (category != tx.Category)
         {
             tx.Category = category;
@@ -348,16 +353,20 @@ app.MapPost("/api/recategorize", async (CategorizationService categorizer, Finan
     }
     await db.SaveChangesAsync();
     return Results.Ok(new { total = all.Count, changed });
-});
+}).RequireAuthorization();
 
-app.MapGet("/api/categories", async (FinanceDbContext db) =>
-    Results.Ok(await db.Categories.OrderBy(c => c.Name).Select(c => new { c.Id, c.Name, c.Color }).ToListAsync()));
-
-app.MapPost("/api/categories", async (CategoryRequest body, FinanceDbContext db) =>
+app.MapGet("/api/categories", async (HttpContext http, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
+    return Results.Ok(await db.Categories.Where(c => c.UserId == userId).OrderBy(c => c.Name).Select(c => new { c.Id, c.Name, c.Color }).ToListAsync());
+}).RequireAuthorization();
+
+app.MapPost("/api/categories", async (HttpContext http, CategoryRequest body, FinanceDbContext db) =>
+{
+    var userId = http.User.GetUserId();
     var name = body.Name?.Trim();
     if (string.IsNullOrEmpty(name)) return Results.BadRequest("Name darf nicht leer sein.");
-    if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
+    if (await db.Categories.AnyAsync(c => c.Name == name && c.UserId == userId)) return Results.Conflict("Kategorie existiert bereits.");
 
     var color = body.Color?.Trim();
     if (!string.IsNullOrEmpty(color))
@@ -367,32 +376,33 @@ app.MapPost("/api/categories", async (CategoryRequest body, FinanceDbContext db)
     else
     {
         // Keine Farbe mitgegeben - automatisch eine nehmen, die noch keine andere Kategorie nutzt.
-        color = CategoryColors.PickUnused(await db.Categories.Select(c => c.Color).ToListAsync());
+        color = CategoryColors.PickUnused(await db.Categories.Where(c => c.UserId == userId).Select(c => c.Color).ToListAsync());
     }
 
-    var category = new Category { Name = name, Color = color };
+    var category = new Category { Name = name, Color = color, UserId = userId };
     db.Categories.Add(category);
     await db.SaveChangesAsync();
     return Results.Ok(new { category.Id, category.Name, category.Color });
-});
+}).RequireAuthorization();
 
-app.MapPut("/api/categories/{id:int}", async (int id, CategoryRequest body, FinanceDbContext db) =>
+app.MapPut("/api/categories/{id:int}", async (int id, HttpContext http, CategoryRequest body, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
     var name = body.Name?.Trim();
     if (string.IsNullOrEmpty(name)) return Results.BadRequest("Name darf nicht leer sein.");
 
-    var category = await db.Categories.FindAsync(id);
+    var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
     if (category is null) return Results.NotFound();
 
     if (category.Name != name)
     {
-        if (await db.Categories.AnyAsync(c => c.Name == name)) return Results.Conflict("Kategorie existiert bereits.");
+        if (await db.Categories.AnyAsync(c => c.Name == name && c.UserId == userId)) return Results.Conflict("Kategorie existiert bereits.");
 
         var oldName = category.Name;
         category.Name = name;
         // StoredTransaction.Category ist ein reiner String (kein Fremdschluessel) - beim Umbenennen
         // muessen bereits gespeicherte Buchungen mitgezogen werden, sonst verwaisen sie unter dem alten Namen.
-        await db.Transactions.Where(t => t.Category == oldName)
+        await db.Transactions.Where(t => t.Category == oldName && t.UserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.Category, name));
     }
 
@@ -408,45 +418,50 @@ app.MapPut("/api/categories/{id:int}", async (int id, CategoryRequest body, Fina
 
     await db.SaveChangesAsync();
     return Results.Ok(new { category.Id, category.Name, category.Color });
-});
+}).RequireAuthorization();
 
-app.MapDelete("/api/categories/{id:int}", async (int id, FinanceDbContext db) =>
+app.MapDelete("/api/categories/{id:int}", async (int id, HttpContext http, FinanceDbContext db) =>
 {
-    var category = await db.Categories.FindAsync(id);
+    var userId = http.User.GetUserId();
+    var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
     if (category is null) return Results.NotFound();
     // "Sonstiges" ist das Reassignment-Ziel fuer geloeschte Kategorien und der LLM-Fallback -
     // ohne sie liefe beides ins Leere.
     if (category.Name == "Sonstiges") return Results.BadRequest("\"Sonstiges\" kann nicht geloescht werden.");
 
-    await db.Transactions.Where(t => t.Category == category.Name)
+    await db.Transactions.Where(t => t.Category == category.Name && t.UserId == userId)
         .ExecuteUpdateAsync(s => s.SetProperty(t => t.Category, "Sonstiges"));
     // Eine Regel, die auf eine geloeschte Kategorie zeigt, ist sinnlos (anders als bei Buchungen
     // gibt es fuer Regeln kein sinnvolles "Sonstiges"-Reassignment) - also mit loeschen.
-    await db.Rules.Where(r => r.CategoryId == id).ExecuteDeleteAsync();
+    await db.Rules.Where(r => r.CategoryId == id && r.UserId == userId).ExecuteDeleteAsync();
     db.Categories.Remove(category);
     await db.SaveChangesAsync();
     return Results.Ok();
-});
+}).RequireAuthorization();
 
-app.MapGet("/api/rules", async (FinanceDbContext db) =>
-    Results.Ok(await db.Rules
-        .Join(db.Categories, r => r.CategoryId, c => c.Id, (r, c) => new { r.Id, r.Pattern, CategoryId = c.Id, CategoryName = c.Name })
-        .OrderBy(x => x.Pattern)
-        .ToListAsync()));
-
-app.MapPost("/api/rules", async (RuleRequest body, FinanceDbContext db) =>
+app.MapGet("/api/rules", async (HttpContext http, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
+    return Results.Ok(await db.Rules.Where(r => r.UserId == userId)
+        .Join(db.Categories.Where(c => c.UserId == userId), r => r.CategoryId, c => c.Id, (r, c) => new { r.Id, r.Pattern, CategoryId = c.Id, CategoryName = c.Name })
+        .OrderBy(x => x.Pattern)
+        .ToListAsync());
+}).RequireAuthorization();
+
+app.MapPost("/api/rules", async (HttpContext http, RuleRequest body, FinanceDbContext db) =>
+{
+    var userId = http.User.GetUserId();
     var pattern = body.Pattern?.Trim();
     if (string.IsNullOrEmpty(pattern)) return Results.BadRequest("Muster darf nicht leer sein.");
 
-    var category = await db.Categories.FindAsync(body.CategoryId);
+    var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == body.CategoryId && c.UserId == userId);
     if (category is null) return Results.BadRequest("Unbekannte Kategorie.");
 
     // Muster existiert schon in einer anderen Kategorie -> Regel umhaengen statt Fehler.
-    var rule = await db.Rules.FirstOrDefaultAsync(r => r.Pattern == pattern);
+    var rule = await db.Rules.FirstOrDefaultAsync(r => r.Pattern == pattern && r.UserId == userId);
     if (rule is null)
     {
-        rule = new Rule { Pattern = pattern, CategoryId = category.Id };
+        rule = new Rule { Pattern = pattern, CategoryId = category.Id, UserId = userId };
         db.Rules.Add(rule);
     }
     else
@@ -455,23 +470,25 @@ app.MapPost("/api/rules", async (RuleRequest body, FinanceDbContext db) =>
     }
     await db.SaveChangesAsync();
     return Results.Ok(new { rule.Id, rule.Pattern, CategoryId = category.Id, CategoryName = category.Name });
-});
+}).RequireAuthorization();
 
-app.MapDelete("/api/rules/{id:int}", async (int id, FinanceDbContext db) =>
+app.MapDelete("/api/rules/{id:int}", async (int id, HttpContext http, FinanceDbContext db) =>
 {
-    var rule = await db.Rules.FindAsync(id);
+    var userId = http.User.GetUserId();
+    var rule = await db.Rules.FirstOrDefaultAsync(r => r.Id == id && r.UserId == userId);
     if (rule is null) return Results.NotFound();
     db.Rules.Remove(rule);
     await db.SaveChangesAsync();
     return Results.Ok();
-});
+}).RequireAuthorization();
 
-app.MapGet("/api/summary", async (DateOnly from, DateOnly to, FinanceDbContext db) =>
+app.MapGet("/api/summary", async (DateOnly from, DateOnly to, HttpContext http, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
     // ponytail: EF Core/Sqlite kann SUM() nicht auf decimal uebersetzen - bei der kleinen
     // Datenmenge eines persoenlichen Kontos reicht Aggregieren nach dem Laden.
     var rangeTransactions = await db.Transactions
-        .Where(t => t.BookingDate >= from && t.BookingDate <= to)
+        .Where(t => t.BookingDate >= from && t.BookingDate <= to && t.UserId == userId)
         .ToListAsync();
 
     var summary = rangeTransactions
@@ -480,14 +497,16 @@ app.MapGet("/api/summary", async (DateOnly from, DateOnly to, FinanceDbContext d
         .ToList();
 
     return Results.Ok(summary);
-});
+}).RequireAuthorization();
 
 // Einzelabrechnungen fuer einen Balken (Kategorie + Zeitraum) im Drilldown - oder, ohne
 // category, die juengsten Buchungen im Zeitraum, damit die Buchungsliste im Dashboard beim
 // initialen Laden nicht leer ist. Mit category weiterhin unlimitiert (bisheriges Verhalten).
-app.MapGet("/api/transactions", async (DateOnly from, DateOnly to, string? category, int? limit, FinanceDbContext db) =>
+app.MapGet("/api/transactions", async (DateOnly from, DateOnly to, string? category, int? limit, HttpContext http, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
     var query = db.Transactions
+        .Where(t => t.UserId == userId)
         .Where(t => t.BookingDate >= from && t.BookingDate <= to);
 
     if (!string.IsNullOrEmpty(category))
@@ -502,33 +521,35 @@ app.MapGet("/api/transactions", async (DateOnly from, DateOnly to, string? categ
         .ToListAsync();
 
     return Results.Ok(transactions);
-});
+}).RequireAuthorization();
 
 // Alle Buchungen im gewaehlten Zeitraum loeschen (z.B. um einen fehlerhaften Import wieder
 // rueckgaengig zu machen) - unabhaengig von einem evtl. gesetzten Kategorie-Filter im Dashboard.
-app.MapDelete("/api/transactions", async (DateOnly from, DateOnly to, FinanceDbContext db) =>
+app.MapDelete("/api/transactions", async (DateOnly from, DateOnly to, HttpContext http, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
     var deleted = await db.Transactions
-        .Where(t => t.BookingDate >= from && t.BookingDate <= to)
+        .Where(t => t.BookingDate >= from && t.BookingDate <= to && t.UserId == userId)
         .ExecuteDeleteAsync();
     return Results.Ok(new { deleted });
-});
+}).RequireAuthorization();
 
 // Einzelne Buchung manuell umkategorisieren (z.B. Dropdown in der Buchungsliste im Dashboard) -
 // unabhaengig von Regeln/Neu-kategorisieren, greift sofort nur fuer diese eine Buchung.
-app.MapPut("/api/transactions/{id:int}/category", async (int id, CategoryAssignRequest body, FinanceDbContext db) =>
+app.MapPut("/api/transactions/{id:int}/category", async (int id, HttpContext http, CategoryAssignRequest body, FinanceDbContext db) =>
 {
+    var userId = http.User.GetUserId();
     var categoryName = body.Category?.Trim();
     if (string.IsNullOrEmpty(categoryName)) return Results.BadRequest("Kategorie darf nicht leer sein.");
-    if (!await db.Categories.AnyAsync(c => c.Name == categoryName)) return Results.BadRequest("Unbekannte Kategorie.");
+    if (!await db.Categories.AnyAsync(c => c.Name == categoryName && c.UserId == userId)) return Results.BadRequest("Unbekannte Kategorie.");
 
-    var tx = await db.Transactions.FindAsync(id);
+    var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId);
     if (tx is null) return Results.NotFound();
 
     tx.Category = categoryName;
     await db.SaveChangesAsync();
     return Results.Ok(new { tx.Id, tx.Category });
-});
+}).RequireAuthorization();
 
 app.Run();
 
