@@ -1474,6 +1474,15 @@ button:focus-visible,
   color: var(--status-critical);
 }
 
+/* ResetPassword.tsx verschachtelt sein <form> innerhalb von .auth-card (AuthGate
+   IST selbst das .auth-card-Formular, kollidiert also nicht mit dieser Regel) -
+   ohne das hier fehlt der Abstand zwischen Feld und Button komplett. */
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
 /* Primaerer CTA (Login-Submit, Bank-Config speichern, ...) - Umkehrung statt
    Akzentfarbe, damit der Kontrast in Light UND Dark automatisch stimmt
    (--chart-balance als Volltonflaeche faellt im Dark-Theme unter 4.5:1 gegen
