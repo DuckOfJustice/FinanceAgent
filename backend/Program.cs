@@ -155,35 +155,40 @@ app.MapAuthEndpoints();
 app.MapAdminEndpoints();
 
 // Hilfsendpunkt fuer die Ersteinrichtung: exakten ASPSP-Namen der eigenen Volksbank finden.
-app.MapGet("/api/institutions", async (EnableBankingClient bank) =>
-    Results.Ok(await bank.ListInstitutionsAsync(app.Configuration["EnableBanking:AspspCountry"] ?? "DE")));
+app.MapGet("/api/institutions", async (HttpContext http, EnableBankingClient bank, FinanceDbContext db) =>
+{
+    var config = await RequireConfigAsync(http, db);
+    return Results.Ok(await bank.ListInstitutionsAsync(config.AppId!, config.PrivateKeyPem!, config.AspspCountry ?? "DE"));
+}).RequireAuthorization();
 
 // Einmalig bei der Ersteinrichtung aufrufen: liefert den Consent-Link fuer den Browser.
-app.MapPost("/api/consent-link", async (EnableBankingClient bank) =>
+app.MapPost("/api/consent-link", async (HttpContext http, EnableBankingClient bank, FinanceDbContext db) =>
 {
-    var aspspName = app.Configuration["EnableBanking:AspspName"]
-        ?? throw new InvalidOperationException("EnableBanking:AspspName fehlt - siehe GET /api/institutions.");
-    var aspspCountry = app.Configuration["EnableBanking:AspspCountry"] ?? "DE";
-    var url = await bank.StartAuthorizationAsync(aspspName, aspspCountry);
+    var config = await RequireConfigAsync(http, db);
+    if (string.IsNullOrEmpty(config.AspspName))
+        throw new InvalidOperationException("AspspName fehlt - siehe GET /api/institutions.");
+    var url = await bank.StartAuthorizationAsync(config.AppId!, config.PrivateKeyPem!, config.AspspName, config.AspspCountry ?? "DE");
     return Results.Ok(new { url });
-});
+}).RequireAuthorization();
 
-// Redirect-Ziel nach dem Bank-Login: zeigt die SessionId zum Eintragen in .env an.
-app.MapGet("/api/consent-callback", async (string code, EnableBankingClient bank) =>
+// Redirect-Ziel nach dem Bank-Login: tauscht den Code gegen eine SessionId und speichert sie verschluesselt.
+app.MapGet("/api/consent-callback", async (string code, HttpContext http, EnableBankingClient bank, FinanceDbContext db, SecretProtector protector) =>
 {
-    var sessionId = await bank.CreateSessionAsync(code);
-    return Results.Text($"Session erstellt. In .env eintragen:\nEnableBanking__SessionId={sessionId}");
-});
+    var config = await RequireConfigAsync(http, db);
+    var sessionId = await bank.CreateSessionAsync(config.AppId!, config.PrivateKeyPem!, code);
+    config.SessionId = protector.Protect(sessionId);
+    await db.SaveChangesAsync();
+    return Results.Text("Session erstellt und gespeichert.");
+}).RequireAuthorization();
 
-app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db, DateOnly? from, DateOnly? to) =>
+app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, CategorizationService categorizer, FinanceDbContext db, SecretProtector protector, DateOnly? from, DateOnly? to) =>
 {
     var userId = http.User.GetUserId();
-    var sessionId = app.Configuration["EnableBanking:SessionId"];
-    if (string.IsNullOrEmpty(sessionId))
-        return Results.BadRequest("Kein EnableBanking:SessionId gesetzt - erst /api/consent-link durchlaufen und Ergebnis in .env eintragen.");
-
-    var iban = app.Configuration["EnableBanking:AccountIban"]
-        ?? throw new InvalidOperationException("EnableBanking:AccountIban fehlt in der Konfiguration.");
+    var config = await RequireConfigAsync(http, db);
+    if (string.IsNullOrEmpty(config.SessionId))
+        return Results.BadRequest("Kein EnableBanking-Session vorhanden - erst /api/consent-link durchlaufen.");
+    if (string.IsNullOrEmpty(config.AccountIban))
+        return Results.BadRequest("AccountIban fehlt in der Konfiguration.");
 
     // Ohne Angabe: aktueller Monat (bisheriges Verhalten fuer den monatlichen Lauf ohne UI).
     var rangeFrom = from ?? new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
@@ -192,7 +197,7 @@ app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, C
     List<BankTransaction> transactions;
     try
     {
-        transactions = await bank.GetTransactionsAsync(sessionId, iban, rangeFrom, rangeTo);
+        transactions = await bank.GetTransactionsAsync(config.AppId!, config.PrivateKeyPem!, protector.Unprotect(config.SessionId), config.AccountIban, rangeFrom, rangeTo);
     }
     catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
     {
@@ -204,6 +209,15 @@ app.MapPost("/api/refresh", async (HttpContext http, EnableBankingClient bank, C
     var (imported, _) = await ImportTransactionsAsync(userId, transactions, categorizer, db);
     return Results.Ok(new { imported });
 }).RequireAuthorization();
+
+async Task<EnableBankingConfig> RequireConfigAsync(HttpContext http, FinanceDbContext db)
+{
+    var userId = http.User.GetUserId();
+    var config = await db.EnableBankingConfigs.FindAsync(userId);
+    if (config is null || string.IsNullOrEmpty(config.AppId) || string.IsNullOrEmpty(config.PrivateKeyPem))
+        throw new InvalidOperationException("Kein EnableBanking-Config fuer diesen Nutzer hinterlegt - Admin muss ihn erst im Admin-Panel eintragen.");
+    return config;
+}
 
 // Bankunabhaengiger Nachimport: eine oder mehrere CAMT.052/053-Dateien hochladen, um Buchungen
 // zu importieren, die weiter zurueckliegen als das 90-Tage-Limit der EnableBanking-Session.
@@ -239,7 +253,8 @@ app.MapPost("/api/import/camt053", async (HttpContext http, IFormFileCollection 
     }
 
     return Results.Ok(new { imported, total, errors, skipped });
-}).RequireAuthorization().DisableAntiforgery(); // DisableAntiforgery: Cookie-Auth schuetzt bereits per RequireAuthorization, kein zusaetzlicher CSRF-Token-Flow fuer diesen Upload-Endpoint.
+}).RequireAuthorization().DisableAntiforgery(); // Cookie ist SameSite=Strict (siehe Auth.cs) - das blockt
+                                                  // bereits Cross-Site-Requests, ein zusaetzliches Antiforgery-Token waere doppelt gemoppelt.
 
 async Task<(int imported, List<object> skipped)> ImportTransactionsAsync(int userId, List<BankTransaction> transactions, CategorizationService categorizer, FinanceDbContext db)
 {

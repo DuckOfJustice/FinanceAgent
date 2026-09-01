@@ -7,12 +7,12 @@ using System.Text.Json.Serialization;
 
 namespace FinanceDuck.Api;
 
-public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
+public sealed class EnableBankingClient(HttpClient http)
 {
     // Einmalig bei der Ersteinrichtung: Link im Browser oeffnen, Volksbank-Login bestaetigen.
-    public async Task<string> StartAuthorizationAsync(string aspspName, string aspspCountry)
+    public async Task<string> StartAuthorizationAsync(string appId, string privateKeyPem, string aspspName, string aspspCountry)
     {
-        AuthenticateRequest();
+        AuthenticateRequest(appId, privateKeyPem);
         var res = await http.PostAsJsonAsync("auth", new
         {
             aspsp = new { name = aspspName, country = aspspCountry },
@@ -27,9 +27,9 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
     }
 
     // Ziel des Redirects nach dem Bank-Login: tauscht den "code" aus der Callback-URL gegen eine SessionId.
-    public async Task<string> CreateSessionAsync(string code)
+    public async Task<string> CreateSessionAsync(string appId, string privateKeyPem, string code)
     {
-        AuthenticateRequest();
+        AuthenticateRequest(appId, privateKeyPem);
         var res = await http.PostAsJsonAsync("sessions", new { code });
         await EnsureOkAsync(res);
         // ponytail: POST /sessions liefert "accounts" verschachtelt, GET /sessions/{id} liefert
@@ -40,23 +40,23 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
     }
 
     // Hilfsendpunkt fuer die Ersteinrichtung: den exakten ASPSP-Namen der eigenen Volksbank finden.
-    public async Task<JsonElement> ListInstitutionsAsync(string country)
+    public async Task<JsonElement> ListInstitutionsAsync(string appId, string privateKeyPem, string country)
     {
-        AuthenticateRequest();
+        AuthenticateRequest(appId, privateKeyPem);
         var res = await http.GetAsync($"aspsps?country={country}");
         res.EnsureSuccessStatusCode();
         return JsonDocument.Parse(await res.Content.ReadAsStreamAsync()).RootElement.Clone();
     }
 
-    public async Task<List<BankTransaction>> GetTransactionsAsync(string sessionId, string targetIban, DateOnly from, DateOnly to)
+    public async Task<List<BankTransaction>> GetTransactionsAsync(string appId, string privateKeyPem, string sessionId, string targetIban, DateOnly from, DateOnly to)
     {
-        AuthenticateRequest();
+        AuthenticateRequest(appId, privateKeyPem);
         var sessionRes = await http.GetAsync($"sessions/{sessionId}");
         await EnsureOkAsync(sessionRes);
         var session = await sessionRes.Content.ReadFromJsonAsync<SessionResponse>();
-        var accountId = await FindAccountByIbanAsync(session!.Accounts, targetIban);
+        var accountId = await FindAccountByIbanAsync(appId, privateKeyPem, session!.Accounts, targetIban);
 
-        AuthenticateRequest();
+        AuthenticateRequest(appId, privateKeyPem);
         var transactionsRes = await http.GetAsync(
             $"accounts/{accountId}/transactions?date_from={from:yyyy-MM-dd}&date_to={to:yyyy-MM-dd}");
         await EnsureOkAsync(transactionsRes);
@@ -84,14 +84,14 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
     // aendert sich nicht, und Enable Banking rate-limitet /details recht knapp.
     private static readonly Dictionary<string, string> AccountUidCache = new();
 
-    private async Task<string> FindAccountByIbanAsync(List<string> accountUids, string targetIban)
+    private async Task<string> FindAccountByIbanAsync(string appId, string privateKeyPem, List<string> accountUids, string targetIban)
     {
         if (AccountUidCache.TryGetValue(targetIban, out var cached))
             return cached;
 
         foreach (var uid in accountUids)
         {
-            AuthenticateRequest();
+            AuthenticateRequest(appId, privateKeyPem);
             var detailsRes = await http.GetAsync($"accounts/{uid}/details");
             await EnsureOkAsync(detailsRes);
             var details = await detailsRes.Content.ReadFromJsonAsync<AccountDetails>();
@@ -121,16 +121,13 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         throw new HttpRequestException(message ?? res.ReasonPhrase, null, res.StatusCode);
     }
 
-    private void AuthenticateRequest() =>
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", BuildJwt());
+    private void AuthenticateRequest(string appId, string privateKeyPem) =>
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", BuildJwt(appId, privateKeyPem));
 
     // ponytail: RS256-JWT von Hand gebaut statt einer JWT-Lib - drei Base64Url-Segmente,
     // dafuer braucht's kein zusaetzliches NuGet-Package.
-    private string BuildJwt()
+    private string BuildJwt(string appId, string privateKeyPem)
     {
-        var appId = cfg["EnableBanking:AppId"]!;
-        var privateKeyPem = File.ReadAllText(cfg["EnableBanking:PrivateKeyPath"]!);
-
         var header = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new { typ = "JWT", alg = "RS256", kid = appId }));
         var now = DateTimeOffset.UtcNow;
         var payload = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new
