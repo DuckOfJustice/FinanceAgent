@@ -36,13 +36,30 @@ const IconLink = () => (
   </svg>
 )
 
+const IconUsers = () => (
+  <svg {...iconProps}>
+    <path d="M17 21v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1" />
+    <circle cx="10" cy="7" r="3.2" />
+    <path d="M22 21v-1a3.8 3.8 0 0 0-2.7-3.65" />
+    <path d="M16 3.3a3.8 3.8 0 0 1 0 7.1" />
+  </svg>
+)
+
+const IconLogout = () => (
+  <svg {...iconProps}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="M16 17l5-5-5-5" />
+    <path d="M21 12H9" />
+  </svg>
+)
+
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   const text = await res.text().catch(() => '')
   return text || fallback
 }
 
 export default function App() {
-  const [user, setUser] = useState<{ username: string; isAdmin: boolean } | null | undefined>(undefined)
+  const [user, setUser] = useState<{ username: string; isAdmin: boolean; bankConnected: boolean } | null | undefined>(undefined)
 
   useEffect(() => {
     fetch('/api/auth/me').then(res => (res.ok ? res.json() : null)).then(setUser)
@@ -131,51 +148,59 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="app-nav" aria-label="Bereich">
-            <button type="button" className="app-nav-action" onClick={() => setCategoryManagerOpen(true)}>
-              <IconTag />
-              <span>Kategorien verwalten</span>
-            </button>
-
-            <button type="button" className="app-nav-action" onClick={() => setRuleManagerOpen(true)}>
-              <IconListChecks />
-              <span>Regeln verwalten</span>
-            </button>
-
-            {user.isAdmin && (
-              <button type="button" className="app-nav-action" onClick={() => setAdminPanelOpen(true)}>
-                <span>Nutzer verwalten</span>
+          <div className="app-nav-groups">
+            <nav className="app-nav" aria-label="Arbeitsbereich">
+              <button type="button" className="app-nav-action" onClick={() => setCategoryManagerOpen(true)}>
+                <IconTag />
+                <span>Kategorien verwalten</span>
               </button>
-            )}
 
-            <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
-              <IconLink />
-              <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
-            </button>
+              <button type="button" className="app-nav-action" onClick={() => setRuleManagerOpen(true)}>
+                <IconListChecks />
+                <span>Regeln verwalten</span>
+              </button>
 
-            <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
-              <IconUpload />
-              <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xml"
-              multiple
-              hidden
-              onChange={e => {
-                // Array.from() vor dem Zuruecksetzen: e.target.files ist eine live FileList,
-                // die beim Leeren von e.target.value mitgeleert wird - danach waere sie leer.
-                const files = Array.from(e.target.files ?? [])
-                e.target.value = ''
-                if (files.length > 0) importCamt053(files)
-              }}
-            />
+              <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
+                <IconUpload />
+                <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xml"
+                multiple
+                hidden
+                onChange={e => {
+                  // Array.from() vor dem Zuruecksetzen: e.target.files ist eine live FileList,
+                  // die beim Leeren von e.target.value mitgeleert wird - danach waere sie leer.
+                  const files = Array.from(e.target.files ?? [])
+                  e.target.value = ''
+                  if (files.length > 0) importCamt053(files)
+                }}
+              />
+            </nav>
 
-            <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
-              <span>{user.username} · Abmelden</span>
-            </button>
-          </nav>
+            <nav className="app-nav app-nav-group-account" aria-label="Konto">
+              {user.isAdmin && (
+                <button type="button" className="app-nav-action" onClick={() => setAdminPanelOpen(true)}>
+                  <IconUsers />
+                  <span>Nutzer verwalten</span>
+                </button>
+              )}
+
+              {!user.bankConnected && (
+                <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
+                  <IconLink />
+                  <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
+                </button>
+              )}
+
+              <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
+                <IconLogout />
+                <span>{user.username} · Abmelden</span>
+              </button>
+            </nav>
+          </div>
         </div>
         {connectMessage && <p className="status-text">{connectMessage}</p>}
         {importMessage && <p className="status-text">{importMessage}</p>}

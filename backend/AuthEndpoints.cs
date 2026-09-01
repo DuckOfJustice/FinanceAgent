@@ -37,7 +37,8 @@ public static class AuthEndpoints
             await db.SaveChangesAsync();
 
             await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, AuthExtensions.BuildPrincipal(user));
-            return Results.Ok(new { user.Username, user.IsAdmin });
+            // Frisch registriert - es kann noch keine EnableBankingConfig fuer diesen Nutzer geben.
+            return Results.Ok(new { user.Username, user.IsAdmin, bankConnected = false });
         });
 
         app.MapPost("/api/auth/login", async (AuthRequest body, FinanceDbContext db, IPasswordHasher<User> hasher, HttpContext http) =>
@@ -49,7 +50,8 @@ public static class AuthEndpoints
             if (result == PasswordVerificationResult.Failed) return Results.Unauthorized();
 
             await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, AuthExtensions.BuildPrincipal(user));
-            return Results.Ok(new { user.Username, user.IsAdmin });
+            var bankConnected = await db.EnableBankingConfigs.AnyAsync(c => c.UserId == user.Id && c.SessionId != null);
+            return Results.Ok(new { user.Username, user.IsAdmin, bankConnected });
         });
 
         app.MapPost("/api/auth/logout", async (HttpContext http) =>
@@ -58,10 +60,12 @@ public static class AuthEndpoints
             return Results.Ok();
         });
 
-        app.MapGet("/api/auth/me", (HttpContext http) =>
+        app.MapGet("/api/auth/me", async (HttpContext http, FinanceDbContext db) =>
         {
             if (http.User.Identity?.IsAuthenticated != true) return Results.Unauthorized();
-            return Results.Ok(new { username = http.User.Identity.Name, isAdmin = http.User.IsAdmin() });
+            var userId = http.User.GetUserId();
+            var bankConnected = await db.EnableBankingConfigs.AnyAsync(c => c.UserId == userId && c.SessionId != null);
+            return Results.Ok(new { username = http.User.Identity.Name, isAdmin = http.User.IsAdmin(), bankConnected });
         });
     }
 
@@ -77,7 +81,8 @@ public static class AuthEndpoints
                     x.u.Id,
                     x.u.Username,
                     x.u.IsAdmin,
-                    HasBankConfig = x.cs.Any(c => c.AccountIban != null)
+                    HasBankConfig = x.cs.Any(c => c.AccountIban != null),
+                    BankConnected = x.cs.Any(c => c.SessionId != null)
                 })
                 .OrderBy(x => x.Username)
                 .ToListAsync()));
@@ -97,6 +102,18 @@ public static class AuthEndpoints
             config.AccountIban = string.IsNullOrEmpty(body.AccountIban) ? config.AccountIban : body.AccountIban;
             if (db.Entry(config).State == EntityState.Detached) db.EnableBankingConfigs.Add(config);
 
+            await db.SaveChangesAsync();
+            return Results.Ok();
+        });
+
+        // Setzt nur die SessionId zurueck (App-ID/Key/IBAN bleiben) - der Nutzer sieht
+        // "Bank verbinden" wieder und kann den Consent-Flow erneut durchlaufen, z.B. nach
+        // Ablauf der Bank-Session oder auf Wunsch, die Verbindung neu aufzusetzen.
+        admin.MapPost("/users/{id:int}/reset-bank-connection", async (int id, FinanceDbContext db) =>
+        {
+            var config = await db.EnableBankingConfigs.FindAsync(id);
+            if (config is null) return Results.NotFound();
+            config.SessionId = null;
             await db.SaveChangesAsync();
             return Results.Ok();
         });

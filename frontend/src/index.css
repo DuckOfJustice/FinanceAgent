@@ -525,6 +525,22 @@ button:focus-visible,
   gap: 0.4rem;
 }
 
+/* Zwei getrennte Nav-Gruppen statt einer langen Reihe: Arbeitsbereich-Aktionen
+   (Kategorien/Regeln/Import) klar abgesetzt von Konto-Aktionen (Bank/Nutzer/
+   Abmelden), damit nicht beides wie eine gleichwertige Button-Reihe wirkt. */
+.app-nav-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.app-nav-group-account {
+  padding-left: 0.5rem;
+  margin-left: 0.1rem;
+  border-left: 1px solid var(--border);
+}
+
 .app-nav-action {
   font-size: 12.5px;
   font-weight: 600;
@@ -1145,11 +1161,39 @@ button:focus-visible,
   .app-tagline {
     display: none;
   }
+  /* Ohne Umbruch wurde .app-nav-groups im einzeiligen .app-header-inner einfach
+     zusammengequetscht/abgeschnitten statt sichtbar zu bleiben - auf schmalen
+     Screens fehlten dadurch Buttons komplett statt nur ihre Beschriftung zu
+     verlieren. Kopfzeile bricht jetzt zweizeilig um: Marke oben, Nav-Gruppen
+     darunter in voller Breite. */
+  .app-header-inner {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+    padding: 0.55rem 1rem;
+    gap: 0.6rem;
+  }
+  .app-nav-groups {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .app-logo-badge {
+    width: 28px;
+    height: 28px;
+    padding: 4px;
+  }
+  .app-nav-groups,
+  .app-nav {
+    gap: 0.25rem;
+  }
+  .app-nav-group-account {
+    padding-left: 0.35rem;
+    margin-left: 0.05rem;
+  }
   .app-nav-action span {
     display: none;
   }
   .app-nav-action {
-    padding: 0.4rem;
+    padding: 0.35rem;
   }
 }
 
@@ -1467,9 +1511,12 @@ button:focus-visible,
 
 .admin-row-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.7rem;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 0.5rem 0.7rem;
+  flex-shrink: 1;
+  max-width: 100%;
   margin-left: auto;
 }
 
