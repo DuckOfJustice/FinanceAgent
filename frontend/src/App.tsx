@@ -131,51 +131,55 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="app-nav" aria-label="Bereich">
-            <button type="button" className="app-nav-action" onClick={() => setCategoryManagerOpen(true)}>
-              <IconTag />
-              <span>Kategorien verwalten</span>
-            </button>
-
-            <button type="button" className="app-nav-action" onClick={() => setRuleManagerOpen(true)}>
-              <IconListChecks />
-              <span>Regeln verwalten</span>
-            </button>
-
-            {user.isAdmin && (
-              <button type="button" className="app-nav-action" onClick={() => setAdminPanelOpen(true)}>
-                <span>Nutzer verwalten</span>
+          <div className="app-nav-groups">
+            <nav className="app-nav" aria-label="Arbeitsbereich">
+              <button type="button" className="app-nav-action" onClick={() => setCategoryManagerOpen(true)}>
+                <IconTag />
+                <span>Kategorien verwalten</span>
               </button>
-            )}
 
-            <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
-              <IconLink />
-              <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
-            </button>
+              <button type="button" className="app-nav-action" onClick={() => setRuleManagerOpen(true)}>
+                <IconListChecks />
+                <span>Regeln verwalten</span>
+              </button>
 
-            <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
-              <IconUpload />
-              <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xml"
-              multiple
-              hidden
-              onChange={e => {
-                // Array.from() vor dem Zuruecksetzen: e.target.files ist eine live FileList,
-                // die beim Leeren von e.target.value mitgeleert wird - danach waere sie leer.
-                const files = Array.from(e.target.files ?? [])
-                e.target.value = ''
-                if (files.length > 0) importCamt053(files)
-              }}
-            />
+              <button type="button" className="app-nav-action" onClick={() => fileInputRef.current?.click()} disabled={importLoading}>
+                <IconUpload />
+                <span>{importLoading ? 'Importiere...' : 'CAMT.053 importieren'}</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xml"
+                multiple
+                hidden
+                onChange={e => {
+                  // Array.from() vor dem Zuruecksetzen: e.target.files ist eine live FileList,
+                  // die beim Leeren von e.target.value mitgeleert wird - danach waere sie leer.
+                  const files = Array.from(e.target.files ?? [])
+                  e.target.value = ''
+                  if (files.length > 0) importCamt053(files)
+                }}
+              />
+            </nav>
 
-            <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
-              <span>{user.username} · Abmelden</span>
-            </button>
-          </nav>
+            <nav className="app-nav app-nav-group-account" aria-label="Konto">
+              {user.isAdmin && (
+                <button type="button" className="app-nav-action" onClick={() => setAdminPanelOpen(true)}>
+                  <span>Nutzer verwalten</span>
+                </button>
+              )}
+
+              <button type="button" className="app-nav-action" onClick={connectBank} disabled={connecting}>
+                <IconLink />
+                <span>{connecting ? 'Verbinde...' : 'Bank verbinden'}</span>
+              </button>
+
+              <button type="button" className="app-nav-action" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => setUser(null))}>
+                <span>{user.username} · Abmelden</span>
+              </button>
+            </nav>
+          </div>
         </div>
         {connectMessage && <p className="status-text">{connectMessage}</p>}
         {importMessage && <p className="status-text">{importMessage}</p>}

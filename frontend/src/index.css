@@ -525,6 +525,22 @@ button:focus-visible,
   gap: 0.4rem;
 }
 
+/* Zwei getrennte Nav-Gruppen statt einer langen Reihe: Arbeitsbereich-Aktionen
+   (Kategorien/Regeln/Import) klar abgesetzt von Konto-Aktionen (Bank/Nutzer/
+   Abmelden), damit nicht beides wie eine gleichwertige Button-Reihe wirkt. */
+.app-nav-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.app-nav-group-account {
+  padding-left: 0.5rem;
+  margin-left: 0.1rem;
+  border-left: 1px solid var(--border);
+}
+
 .app-nav-action {
   font-size: 12.5px;
   font-weight: 600;
