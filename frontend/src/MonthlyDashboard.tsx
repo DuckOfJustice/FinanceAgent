@@ -5,7 +5,7 @@ import DateRangeCalendar from './DateRangeCalendar'
 
 type CategorySummary = { category: string; totalAmount: number }
 type Transaction = { id: number; bookingDate: string; amount: number; counterpartyName: string | null; purpose: string; category: string }
-type Category = { id: number; name: string; color: string | null }
+type Category = { id: number; name: string; color: string | null; isFixkosten: boolean }
 
 const iconProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -273,9 +273,16 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
 
   const chartData = data.map(d => ({ ...d, absAmount: Math.abs(d.totalAmount) }))
   const incomeRows = chartData.filter(d => d.totalAmount >= 0)
-  const expenseRows = chartData.filter(d => d.totalAmount < 0)
+  const allExpenseRows = chartData.filter(d => d.totalAmount < 0)
   const totalIncomeAbs = incomeRows.reduce((sum, d) => sum + d.absAmount, 0)
-  const totalExpenseAbs = expenseRows.reduce((sum, d) => sum + d.absAmount, 0)
+  const totalExpenseAbs = allExpenseRows.reduce((sum, d) => sum + d.absAmount, 0)
+
+  // Als Fixkosten markierte Kategorien werden aus der flachen Ausgaben-Liste rausgezogen und
+  // stattdessen gebuendelt unter einer eigenen Summenzeile angezeigt (siehe renderFixkostenGroup).
+  const fixkostenNames = new Set(categories.filter(c => c.isFixkosten).map(c => c.name))
+  const expenseRows = allExpenseRows.filter(d => !fixkostenNames.has(d.category))
+  const fixkostenRows = allExpenseRows.filter(d => fixkostenNames.has(d.category))
+  const fixkostenTotalAbs = fixkostenRows.reduce((sum, d) => sum + d.absAmount, 0)
 
   const kpis = useMemo(() => {
     const income = data.filter(d => d.totalAmount > 0).reduce((sum, d) => sum + d.totalAmount, 0)
@@ -319,6 +326,31 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
           <div className="cat-bar-fill" style={{ transform: `scaleX(${barPct / 100})`, background: color }} />
         </div>
       </button>
+    )
+  }
+
+  const renderFixkostenGroup = () => {
+    const pct = totalExpenseAbs > 0 ? (fixkostenTotalAbs / totalExpenseAbs) * 100 : 0
+    const barPct = totalExpenseAbs > 0 ? Math.max(pct, 2) : 0
+    return (
+      <div className="cat-fixkosten-group">
+        <div className="cat-row cat-row-fixkosten">
+          <div className="cat-row-head">
+            <span className="cat-name">
+              <span className="cat-dot" style={{ background: 'var(--cat-miete)' }} />
+              Fixkosten
+            </span>
+            <span className="cat-row-figures">
+              <span className="cat-pct">{Math.round(pct)}%</span>
+              <span className="cat-amount" style={{ color: 'var(--ink-primary)' }}>{eur(-fixkostenTotalAbs)}</span>
+            </span>
+          </div>
+          <div className="cat-bar-track">
+            <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: 'var(--cat-miete)' }} />
+          </div>
+        </div>
+        <div className="cat-list cat-list-nested">{fixkostenRows.map(d => renderCatRow(d, totalExpenseAbs))}</div>
+      </div>
     )
   }
 
@@ -454,13 +486,14 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
               </div>
             )}
 
-            {expenseRows.length > 0 && (
+            {(expenseRows.length > 0 || fixkostenRows.length > 0) && (
               <div className="cat-group">
                 <div className="cat-group-label">
                   <span>Ausgaben</span>
                   <span>{eur(-totalExpenseAbs)}</span>
                 </div>
                 <div className="cat-list">{expenseRows.map(d => renderCatRow(d, totalExpenseAbs))}</div>
+                {fixkostenRows.length > 0 && renderFixkostenGroup()}
               </div>
             )}
           </div>

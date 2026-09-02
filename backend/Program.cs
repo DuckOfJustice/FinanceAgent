@@ -127,6 +127,15 @@ using (var scope = app.Services.CreateScope())
         // Spalte existiert schon (DB aus einer frueheren App-Version) - nichts zu tun.
     }
 
+    try
+    {
+        db.Database.ExecuteSqlRaw("""ALTER TABLE "Categories" ADD COLUMN "IsFixkosten" INTEGER NOT NULL DEFAULT 0""");
+    }
+    catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("duplicate column name"))
+    {
+        // Spalte existiert schon (DB aus einer frueheren App-Version) - nichts zu tun.
+    }
+
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS "Users" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_Users" PRIMARY KEY AUTOINCREMENT,
@@ -478,7 +487,7 @@ app.MapPost("/api/recategorize", async (HttpContext http, CategorizationService 
 app.MapGet("/api/categories", async (HttpContext http, FinanceDbContext db) =>
 {
     var userId = http.User.GetUserId();
-    return Results.Ok(await db.Categories.Where(c => c.UserId == userId).OrderBy(c => c.Name).Select(c => new { c.Id, c.Name, c.Color }).ToListAsync());
+    return Results.Ok(await db.Categories.Where(c => c.UserId == userId).OrderBy(c => c.Name).Select(c => new { c.Id, c.Name, c.Color, c.IsFixkosten }).ToListAsync());
 }).RequireAuthorization();
 
 app.MapPost("/api/categories", async (HttpContext http, CategoryRequest body, FinanceDbContext db) =>
@@ -499,10 +508,10 @@ app.MapPost("/api/categories", async (HttpContext http, CategoryRequest body, Fi
         color = CategoryColors.PickUnused(await db.Categories.Where(c => c.UserId == userId).Select(c => c.Color).ToListAsync());
     }
 
-    var category = new Category { Name = name, Color = color, UserId = userId };
+    var category = new Category { Name = name, Color = color, UserId = userId, IsFixkosten = body.IsFixkosten ?? false };
     db.Categories.Add(category);
     await db.SaveChangesAsync();
-    return Results.Ok(new { category.Id, category.Name, category.Color });
+    return Results.Ok(new { category.Id, category.Name, category.Color, category.IsFixkosten });
 }).RequireAuthorization();
 
 app.MapPut("/api/categories/{id:int}", async (int id, HttpContext http, CategoryRequest body, FinanceDbContext db) =>
@@ -536,8 +545,10 @@ app.MapPut("/api/categories/{id:int}", async (int id, HttpContext http, Category
         category.Color = string.IsNullOrEmpty(color) ? null : color;
     }
 
+    if (body.IsFixkosten.HasValue) category.IsFixkosten = body.IsFixkosten.Value;
+
     await db.SaveChangesAsync();
-    return Results.Ok(new { category.Id, category.Name, category.Color });
+    return Results.Ok(new { category.Id, category.Name, category.Color, category.IsFixkosten });
 }).RequireAuthorization();
 
 app.MapDelete("/api/categories/{id:int}", async (int id, HttpContext http, FinanceDbContext db) =>
@@ -673,7 +684,7 @@ app.MapPut("/api/transactions/{id:int}/category", async (int id, HttpContext htt
 
 app.Run();
 
-record CategoryRequest(string? Name, string? Color = null);
+record CategoryRequest(string? Name, string? Color = null, bool? IsFixkosten = null);
 
 // Feste Farbpalette (Slot-Keys, keine Hex-Werte - die CSS-Variablen dazu leben in index.css /
 // categoryColor.ts). Server validiert nur gegen diese Liste, damit keine beliebigen Strings ins UI durchsickern.

@@ -46,6 +46,9 @@ public sealed class Category
     // Server validiert nur gegen CategoryColors.Palette. Null = alte Kategorie, Frontend
     // faellt dann auf den bisherigen Hash-basierten Fallback zurueck.
     public string? Color { get; set; }
+    // Fixkosten sind keine eigene Kategorie, sondern eine Markierung auf bestehenden Kategorien
+    // (z.B. Miete, Versicherung) - im Dashboard werden sie zu einer Summenzeile gruppiert.
+    public bool IsFixkosten { get; set; }
 }
 
 // Kein EF-Fremdschluessel auf Category - Loeschen einer Kategorie raeumt zugehoerige

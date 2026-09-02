@@ -368,6 +368,29 @@ button:focus-visible,
   }
 }
 
+/* Fixkosten-Summenzeile am Ende der Ausgaben: fasst als Fixkosten markierte Kategorien
+   zusammen, die einzelnen Unterkategorien bleiben darunter eingerueckt weiterhin klickbar. */
+.cat-fixkosten-group {
+  margin-top: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
+}
+
+.cat-row-fixkosten {
+  cursor: default;
+  font-weight: 600;
+}
+
+.cat-row-fixkosten:hover {
+  background: none;
+}
+
+.cat-list-nested {
+  margin-top: 0.4rem;
+  padding-left: 0.9rem;
+  border-left: 1px solid var(--border);
+}
+
 /* Buchungen: eigene volle-Breite Karte unterhalb, statt in eine schmale Spalte gequetscht. */
 .buchungen-panel {
   margin-bottom: 0;
@@ -1072,6 +1095,16 @@ button:focus-visible,
 .color-swatch:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.category-fixkosten-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.15rem 1.4rem;
+  color: var(--ink-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
 .category-row-error {
