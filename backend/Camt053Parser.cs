@@ -49,9 +49,11 @@ public static class Camt053Parser
         var relatedParties = Descendant(txDtls, "RltdPties");
         // Bei einer Belastung (DBIT) ist die Gegenpartei der Kreditor (Empfaenger), bei einer
         // Gutschrift der Debitor (Absender) - der jeweils andere Part ist der Kontoinhaber selbst.
+        // Zahlt der Kunde ueber einen Zahlungsdienstleister (z.B. Adyen), steht dort dessen Name -
+        // der eigentliche Haendler steckt dann im abweichenden Zahlungsempfaenger UltmtCdtr/UltmtDbtr.
         var counterpartyName = isDebit
-            ? Descendant(Child(relatedParties, "Cdtr"), "Nm")?.Value
-            : Descendant(Child(relatedParties, "Dbtr"), "Nm")?.Value;
+            ? Descendant(Child(relatedParties, "UltmtCdtr"), "Nm")?.Value ?? Descendant(Child(relatedParties, "Cdtr"), "Nm")?.Value
+            : Descendant(Child(relatedParties, "UltmtDbtr"), "Nm")?.Value ?? Descendant(Child(relatedParties, "Dbtr"), "Nm")?.Value;
 
         var purpose = string.Join(" ", Descendant(txDtls, "RmtInf")?.Elements().Where(e => e.Name.LocalName == "Ustrd").Select(e => e.Value) ?? []).Trim();
         if (string.IsNullOrEmpty(purpose))
@@ -137,6 +139,18 @@ public static class Camt053ParserSelfTest
                   </TxDtls>
                 </NtryDtls>
               </Ntry>
+              <Ntry>
+                <Amt Ccy="EUR">59.99</Amt>
+                <CdtDbtInd>DBIT</CdtDbtInd>
+                <BookgDt><Dt>2026-08-07</Dt></BookgDt>
+                <NtryDtls>
+                  <TxDtls>
+                    <Refs><AcctSvcrRef>REF-003</AcctSvcrRef></Refs>
+                    <RltdPties><Cdtr><Nm>Adyen N.V.</Nm></Cdtr><UltmtCdtr><Nm>tkmaxx-de.com</Nm></UltmtCdtr></RltdPties>
+                    <RmtInf><Ustrd>Kartenzahlung</Ustrd></RmtInf>
+                  </TxDtls>
+                </NtryDtls>
+              </Ntry>
             </Rpt>
           </BkToCstmrAcctRpt>
         </Document>
@@ -147,7 +161,7 @@ public static class Camt053ParserSelfTest
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(SampleXml));
         var result = Camt053Parser.Parse(stream);
 
-        Assert(result.Count == 5, $"erwartet 5 Eintraege, war {result.Count}");
+        Assert(result.Count == 6, $"erwartet 6 Eintraege, war {result.Count}");
 
         var netflix = result[0];
         Assert(netflix.ExternalId == "REF-001", $"ExternalId war {netflix.ExternalId}");
@@ -175,6 +189,11 @@ public static class Camt053ParserSelfTest
         Assert(haendlerA.ExternalId != haendlerB.ExternalId, $"ExternalIds kollidieren: {haendlerA.ExternalId}");
         Assert(haendlerA.ExternalId != "NOTPROVIDED" && haendlerB.ExternalId != "NOTPROVIDED", "ExternalId darf nicht der ISO-Platzhalter sein");
         Assert(haendlerA.ExternalId != "", "ExternalId darf nicht leer sein");
+
+        // Zahlungsdienstleister (Adyen) als Cdtr, echter Haendler steckt im abweichenden
+        // Zahlungsempfaenger UltmtCdtr - dieser muss den Cdtr-Namen ueberschreiben.
+        var adyen = result[5];
+        Assert(adyen.CounterpartyName == "tkmaxx-de.com", $"CounterpartyName war {adyen.CounterpartyName}");
 
         Console.WriteLine("Camt053Parser self-test: OK");
     }
