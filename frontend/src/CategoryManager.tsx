@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CATEGORY_COLOR_SLOTS, categoryColor, pickUnusedColorSlot } from './categoryColor'
 import ConfirmDialog from './ConfirmDialog'
 
-type Category = { id: number; name: string; color: string | null }
+type Category = { id: number; name: string; color: string | null; isFixkosten: boolean }
 
 const iconProps = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -43,6 +43,7 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editColor, setEditColor] = useState<string>(CATEGORY_COLOR_SLOTS[0])
+  const [editIsFixkosten, setEditIsFixkosten] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
@@ -87,6 +88,7 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
     // Bereits gespeicherte Farbe uebernehmen; ohne eine vorhandene direkt eine noch unbenutzte
     // vorauswaehlen, statt den Nutzer zu zwingen selbst eine zu suchen.
     setEditColor(c.color ?? pickUnusedColorSlot(categories.filter(x => x.id !== c.id).map(x => x.color)))
+    setEditIsFixkosten(c.isFixkosten)
     setEditError(null)
   }
 
@@ -106,7 +108,7 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
     const res = await fetch(`/api/categories/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, color: editColor }),
+      body: JSON.stringify({ name, color: editColor, isFixkosten: editIsFixkosten }),
     })
     if (res.ok) {
       const updated: Category = await res.json()
@@ -272,6 +274,17 @@ export default function CategoryManager({ open, onClose }: { open: boolean; onCl
                       />
                     ))}
                   </div>
+                )}
+                {editingId === c.id && (
+                  <label className="category-fixkosten-toggle">
+                    <input
+                      type="checkbox"
+                      checked={editIsFixkosten}
+                      onChange={e => setEditIsFixkosten(e.target.checked)}
+                      disabled={editSaving}
+                    />
+                    Teil der Fixkosten
+                  </label>
                 )}
                 {editingId === c.id && editError && <p className="category-row-error">{editError}</p>}
                 {deleteError?.id === c.id && <p className="category-row-error">{deleteError.message}</p>}
