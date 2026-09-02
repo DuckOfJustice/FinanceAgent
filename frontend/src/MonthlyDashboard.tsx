@@ -326,14 +326,17 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       <div className="cat-fixkosten-group">
         <div className="cat-row cat-row-fixkosten">
           <div className="cat-row-head">
-            <span className="cat-name">Fixkosten</span>
+            <span className="cat-name">
+              <span className="cat-dot" style={{ background: 'var(--cat-miete)' }} />
+              Fixkosten
+            </span>
             <span className="cat-row-figures">
               <span className="cat-pct">{Math.round(pct)}%</span>
               <span className="cat-amount" style={{ color: 'var(--ink-primary)' }}>{eur(-fixkostenTotalAbs)}</span>
             </span>
           </div>
           <div className="cat-bar-track">
-            <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: 'var(--ink-muted)' }} />
+            <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: 'var(--cat-miete)' }} />
           </div>
         </div>
         <div className="cat-list cat-list-nested">{fixkostenRows.map(d => renderCatRow(d, totalExpenseAbs))}</div>
