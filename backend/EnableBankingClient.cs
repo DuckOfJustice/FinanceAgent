@@ -72,7 +72,11 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
                     ExternalId: t.TransactionId ?? t.EntryReference ?? Guid.NewGuid().ToString(),
                     BookingDate: t.BookingDate,
                     Amount: decimal.Parse(t.TransactionAmount.Amount, System.Globalization.CultureInfo.InvariantCulture) * (isDebit ? -1 : 1),
-                    CounterpartyName: isDebit ? t.Creditor?.Name : t.Debtor?.Name,
+                    // Zahlt der Kunde ueber einen Zahlungsdienstleister (z.B. Adyen), steht dort dessen
+                    // Name - der eigentliche Haendler steckt dann im abweichenden Zahlungsempfaenger.
+                    CounterpartyName: isDebit
+                        ? t.UltimateCreditor?.Name ?? t.Creditor?.Name
+                        : t.UltimateDebtor?.Name ?? t.Debtor?.Name,
                     Purpose: t.RemittanceInformation is { Count: > 0 } r ? string.Join(" ", r) : "");
             })
             .ToList();
@@ -170,6 +174,8 @@ public sealed class EnableBankingClient(HttpClient http, IConfiguration cfg)
         [property: JsonPropertyName("credit_debit_indicator")] string CreditDebitIndicator,
         [property: JsonPropertyName("creditor")] Party? Creditor,
         [property: JsonPropertyName("debtor")] Party? Debtor,
+        [property: JsonPropertyName("ultimate_creditor")] Party? UltimateCreditor,
+        [property: JsonPropertyName("ultimate_debtor")] Party? UltimateDebtor,
         [property: JsonPropertyName("remittance_information")] List<string>? RemittanceInformation);
 
     private sealed record RawAmount([property: JsonPropertyName("amount")] string Amount);
