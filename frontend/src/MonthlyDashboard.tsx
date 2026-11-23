@@ -62,6 +62,15 @@ function monthOptions() {
   })
 }
 
+// Einen Monat zurueck; ein Monatsletzter bleibt Monatsletzter (31.03. -> 28.02., 28.02. -> 31.01.),
+// sonst waeren ganze Monate im Vergleich um ein paar Tage zu kurz.
+function shiftMonthBack(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const lastOfMonth = new Date(y, m, 0).getDate()
+  const lastOfPrev = new Date(y, m - 1, 0).getDate()
+  return toIso(new Date(y, m - 2, d === lastOfMonth ? lastOfPrev : Math.min(d, lastOfPrev)))
+}
+
 export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: number }) {
   const months = useMemo(monthOptions, [])
   const [selectedMonth, setSelectedMonth] = useState(months[0].value)
@@ -69,6 +78,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   const [to, setTo] = useState(months[0].to)
 
   const [data, setData] = useState<CategorySummary[]>([])
+  const [prevData, setPrevData] = useState<CategorySummary[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [refreshLoading, setRefreshLoading] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -105,11 +115,22 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
     return () => document.removeEventListener('mousedown', onClick)
   }, [rangeOpen])
 
+  const fetchSummary = (f: string, t: string): Promise<CategorySummary[] | null> =>
+    fetch(`/api/summary?from=${f}&to=${t}`).then(r => {
+      if (r.status === 401) { window.location.reload(); return null }
+      return r.json()
+    })
+
   const loadSummary = () => {
     setSummaryLoading(true)
-    fetch(`/api/summary?from=${from}&to=${to}`)
-      .then(r => r.json())
-      .then((rows: CategorySummary[]) =>
+    // Der Vormonat ist nur Zusatzinfo - scheitert sein Abruf, bleibt das Dashboard trotzdem nutzbar.
+    Promise.all([
+      fetchSummary(from, to),
+      fetchSummary(shiftMonthBack(from), shiftMonthBack(to)).catch(() => null),
+    ])
+      .then(([rows, prevRows]) => {
+        if (!rows) return
+        setPrevData(Array.isArray(prevRows) ? prevRows : [])
         setData([...rows].sort((a, b) => {
           if (a.category === 'Sonstiges') return 1
           if (b.category === 'Sonstiges') return -1
@@ -118,7 +139,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
           if (aPositive !== bPositive) return aPositive ? -1 : 1
           return Math.abs(b.totalAmount) - Math.abs(a.totalAmount)
         }))
-      )
+      })
       .finally(() => setSummaryLoading(false))
   }
 
@@ -131,7 +152,10 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
   // Schliessen von "Kategorien verwalten" hier neu laden, falls sich Namen geaendert haben.
   const isFirstRefreshToken = useRef(true)
   const loadCategories = () => {
-    fetch('/api/categories').then(r => r.json()).then(setCategories)
+    fetch('/api/categories').then(r => {
+      if (r.status === 401) { window.location.reload(); return null }
+      return r.json()
+    }).then(list => { if (list) setCategories(list) })
   }
   useEffect(() => {
     loadCategories()
@@ -150,8 +174,11 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
       ? `/api/transactions?from=${from}&to=${to}&category=${encodeURIComponent(selectedCategory)}`
       : `/api/transactions?from=${from}&to=${to}`
     return fetch(url)
-      .then(r => r.json())
-      .then(setTransactions)
+      .then(r => {
+        if (r.status === 401) { window.location.reload(); return null }
+        return r.json()
+      })
+      .then(list => { if (list) setTransactions(list) })
       .finally(() => setTransactionsLoading(false))
   }
 
@@ -282,6 +309,28 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
     return { income, expenses, balance, savingsRate }
   }, [data])
 
+  // Vergleich zum Vormonat, jeweils auf den Betrag bezogen (▲ = mehr ausgegeben bzw. eingenommen).
+  // Ohne Buchungen im Vormonat entfaellt die Anzeige ganz; Kategorien ohne Vormonatswert oder mit
+  // Vorzeichenwechsel (z.B. Erstattung) gelten als "neu".
+  const prevByCategory = new Map(prevData.map(d => [d.category, d.totalAmount]))
+  const prevFixkostenTotal = prevData
+    .filter(d => fixkostenNames.has(d.category) && d.totalAmount < 0)
+    .reduce((sum, d) => sum + d.totalAmount, 0)
+
+  const renderDelta = (cur: number, prev: number | undefined) => {
+    if (prevData.length === 0) return null
+    if (!prev || Math.sign(prev) !== Math.sign(cur)) return <span className="cat-delta">neu</span>
+    const diff = Math.round((Math.abs(cur) - Math.abs(prev)) * 100) / 100
+    const pct = Math.round(Math.abs(diff / prev) * 100)
+    // Ausgaben hoeher / Einnahmen niedriger = schlechter (rot), umgekehrt besser (gruen).
+    const tone = diff === 0 ? '' : (cur < 0) === (diff > 0) ? ' cat-delta-worse' : ' cat-delta-better'
+    return (
+      <span className={`cat-delta${tone}`} title={`Vormonat: ${eur(prev)}`}>
+        {diff > 0 ? '▲' : diff < 0 ? '▼' : '•'} {diff < 0 ? '-' : '+'}{pct}% · {eur(diff)}
+      </span>
+    )
+  }
+
   const renderCatRow = (d: typeof chartData[number], groupTotal: number) => {
     const pct = groupTotal > 0 ? (d.absAmount / groupTotal) * 100 : 0
     const barPct = groupTotal > 0 ? Math.max(pct, 2) : 0
@@ -311,9 +360,10 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
               {eur(d.totalAmount)}
             </span>
           </span>
+          {renderDelta(d.totalAmount, prevByCategory.get(d.category))}
         </div>
         <div className="cat-bar-track">
-          <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: color }} />
+          <div className="cat-bar-fill" style={{ transform: `scaleX(${barPct / 100})`, background: color }} />
         </div>
       </button>
     )
@@ -334,6 +384,7 @@ export default function MonthlyDashboard({ refreshToken = 0 }: { refreshToken?: 
               <span className="cat-pct">{Math.round(pct)}%</span>
               <span className="cat-amount" style={{ color: 'var(--ink-primary)' }}>{eur(-fixkostenTotalAbs)}</span>
             </span>
+            {renderDelta(-fixkostenTotalAbs, prevFixkostenTotal)}
           </div>
           <div className="cat-bar-track">
             <div className="cat-bar-fill" style={{ width: `${barPct}%`, background: 'var(--cat-miete)' }} />

@@ -53,11 +53,16 @@ export default function RuleManager({ open, onClose }: { open: boolean; onClose:
 
   const loadData = () => {
     setLoading(true)
+    const guarded = (r: Response) => {
+      if (r.status === 401) { window.location.reload(); return null }
+      return r.json()
+    }
     Promise.all([
-      fetch('/api/rules').then(r => r.json()),
-      fetch('/api/categories').then(r => r.json()),
+      fetch('/api/rules').then(guarded),
+      fetch('/api/categories').then(guarded),
     ])
-      .then(([rulesList, categoriesList]: [Rule[], Category[]]) => {
+      .then(([rulesList, categoriesList]: [Rule[] | null, Category[] | null]) => {
+        if (!rulesList || !categoriesList) return
         setRules(sortRules(rulesList))
         setCategories(categoriesList)
       })

@@ -4,10 +4,10 @@ namespace FinanceDuck.Api;
 
 public sealed class CategorizationService(FinanceDbContext db)
 {
-    public async Task<string> CategorizeAsync(string? counterpartyName, string purpose, decimal amount)
+    public async Task<string> CategorizeAsync(int userId, string? counterpartyName, string purpose, decimal amount)
     {
-        var rules = await db.Rules
-            .Join(db.Categories, r => r.CategoryId, c => c.Id, (r, c) => new RuleMatch(r.Pattern, c.Name))
+        var rules = await db.Rules.Where(r => r.UserId == userId)
+            .Join(db.Categories.Where(c => c.UserId == userId), r => r.CategoryId, c => c.Id, (r, c) => new RuleMatch(r.Pattern, c.Name))
             .ToListAsync();
 
         var category = TryGetConfiguredCategory(counterpartyName, purpose, rules) ?? "Sonstiges";
